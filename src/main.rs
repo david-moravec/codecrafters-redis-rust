@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 use std::io::{BufReader, Write, prelude::*};
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 
 fn handle_connection(mut stream: TcpStream) {
     println!("accepted new connection");
@@ -29,7 +30,7 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(mut _stream) => {
-                handle_connection(_stream);
+                thread::spawn(|| handle_connection(_stream));
             }
             Err(e) => {
                 println!("error: {}", e);
