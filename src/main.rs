@@ -3,6 +3,8 @@ use std::io::{BufReader, Write, prelude::*};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 
+mod redis_parser;
+
 fn handle_connection(mut stream: TcpStream) {
     println!("accepted new connection");
 
