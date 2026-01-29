@@ -135,7 +135,7 @@ enum Simple {
 
 #[derive(Debug, PartialEq, Eq)]
 enum Aggregate {
-    BulkString(Vec<u8>),
+    BulkString(Option<Vec<u8>>),
     BulkError(Vec<u8>),
     VerbatimString(Encoding, Vec<u8>),
     Array(Vec<RESPData>),
@@ -151,7 +151,8 @@ impl Hash for Aggregate {
             Self::Map(_) => panic!("Cannot hash Map"),
             Self::Attribute(_) => panic!("Cannot hash Attribute"),
             Self::Set(_) => panic!("Cannot hash Set"),
-            Self::BulkString(d) | Self::BulkError(d) => d.hash(state),
+            Self::BulkString(d) => d.hash(state),
+            Self::BulkError(d) => d.hash(state),
             Self::Array(d) | Self::Push(d) => d.hash(state),
             Self::VerbatimString(encoding, data) => {
                 encoding.hash(state);
@@ -269,15 +270,28 @@ impl Parser {
     fn aggregate(&mut self) -> Result<Aggregate> {
         let data_symbol = self.advance()?;
         let length = self.get_data_length()?;
+
+        // NULL bulk string
+        if length != u64::MAX {
+            self.consume_CRLF()?;
+        }
+
         let orig_pos = self.current;
         self.advance_till_crlf_hit()?;
 
         let type_data = &self.buff[orig_pos..self.current];
 
         match data_symbol {
-            '$' => Ok(Aggregate::BulkString(
-                type_data.iter().collect::<String>().into_bytes(),
-            )),
+            '$' => {
+                let inner_string = {
+                    if length == u64::MAX {
+                        None
+                    } else {
+                        Some(type_data.iter().collect::<String>().into_bytes())
+                    }
+                };
+                Ok(Aggregate::BulkString(inner_string))
+            }
             '*' => {
                 let mut data: Vec<RESPData> = vec![];
 
@@ -349,8 +363,13 @@ impl Parser {
     fn get_data_length(&mut self) -> Result<u64> {
         let orig_pos = self.current;
         self.advance_till_crlf_hit()?;
-        let length = String::from_iter(self.buff[orig_pos..self.current].iter()).parse::<u64>()?;
-        self.consume_CRLF()?;
+        let lenght_str = String::from_iter(self.buff[orig_pos..self.current].iter());
+
+        if lenght_str == "-1" {
+            return Ok(u64::MAX);
+        }
+
+        let length = lenght_str.parse::<u64>()?;
 
         Ok(length)
     }
@@ -412,5 +431,26 @@ mod tests {
                     fractional: 23
                 }))
         );
+    }
+
+    #[test]
+    fn test_parse_aggregate() {
+        let s = "$5\r\nhello\r\n$0\r\n\r\n$-1\r\n";
+
+        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+
+        assert!(
+            parsed[0]
+                == RESPData::Aggregate(Aggregate::BulkString(Some(
+                    "hello".as_bytes().iter().map(|c| *c).collect()
+                )))
+        );
+        assert!(
+            parsed[1]
+                == RESPData::Aggregate(Aggregate::BulkString(Some(
+                    "".as_bytes().iter().map(|c| *c).collect()
+                )))
+        );
+        assert!(parsed[2] == RESPData::Aggregate(Aggregate::BulkString(None)));
     }
 }
