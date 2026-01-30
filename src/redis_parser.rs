@@ -206,6 +206,10 @@ impl Aggregate {
     fn bulk_string(string: Option<&str>) -> Self {
         Aggregate::BulkString(string.map(|s| s.as_bytes().iter().map(|c| *c).collect()))
     }
+
+    fn verbatim_string(encoding: Encoding, string: &str) -> Self {
+        Aggregate::VerbatimString(encoding, string.as_bytes().iter().map(|c| *c).collect())
+    }
 }
 
 impl Hash for Aggregate {
@@ -539,17 +543,32 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_aggregate_map() {
-        let s = "*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$5\r\nhello\r\n";
+    fn test_parse_verbatim_string() {
+        let s = "=15\r\ntxt:Some string\r\n";
 
         let parsed = Parser::new(s.chars().collect()).parse().unwrap();
 
-        if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
-            assert!(array[0] == RESPData::Simple(Simple::Integer(Int::from(1))));
-            assert!(array[1] == RESPData::Simple(Simple::Integer(Int::from(2))));
-            assert!(array[2] == RESPData::Simple(Simple::Integer(Int::from(3))));
-            assert!(array[3] == RESPData::Simple(Simple::Integer(Int::from(4))));
-            assert!(array[4] == RESPData::Aggregate(Aggregate::bulk_string(Some("hello"))));
+        assert!(
+            parsed[0]
+                == RESPData::Aggregate(Aggregate::verbatim_string(Encoding::TXT, "Some string"))
+        );
+    }
+
+    #[test]
+    fn test_parse_aggregate_map() {
+        let s = "%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n";
+
+        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+
+        if let RESPData::Aggregate(Aggregate::Map(map)) = &parsed[0] {
+            assert!(
+                map.get(&RESPData::Simple(Simple::string("first")))
+                    == Some(&RESPData::Simple(Simple::Integer(Int::from(1))))
+            );
+            assert!(
+                map.get(&RESPData::Simple(Simple::string("second")))
+                    == Some(&RESPData::Simple(Simple::Integer(Int::from(2))))
+            );
         } else {
             assert!(false);
         }
