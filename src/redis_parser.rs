@@ -116,10 +116,20 @@ impl Double {
 
 impl From<f64> for Double {
     fn from(value: f64) -> Self {
+        let s = format!("{}", value);
+        let parts: Vec<&str> = s.split('.').collect();
+
+        let integer_part = parts[0].parse::<u64>().unwrap_or(0);
+        let fractional_part = if parts.len() > 1 {
+            parts[1].parse::<u64>().unwrap_or(0)
+        } else {
+            0
+        };
+
         Self {
             sign: { if value < 0.0 { Sign::Minus } else { Sign::Plus } },
-            integral: value.round() as u64,
-            fractional: value.fract() as u64,
+            integral: integer_part,
+            fractional: fractional_part,
         }
     }
 }
@@ -152,6 +162,34 @@ enum Simple {
     BigNumber(BigInt),
 }
 
+impl Simple {
+    fn error(string: &str) -> Self {
+        Self::Error(string.to_string())
+    }
+
+    fn string(string: &str) -> Self {
+        Self::String(string.to_string())
+    }
+}
+
+impl From<bool> for Simple {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+impl From<u64> for Simple {
+    fn from(value: u64) -> Self {
+        Self::Integer(Int::from(value))
+    }
+}
+
+impl From<f64> for Simple {
+    fn from(value: f64) -> Self {
+        Self::Double(Double::from(value))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum Aggregate {
     BulkString(Option<Vec<u8>>),
@@ -162,6 +200,12 @@ enum Aggregate {
     Attribute(RESPMap),
     Set(HashSet<RESPData>),
     Push(Vec<RESPData>),
+}
+
+impl Aggregate {
+    fn bulk_string(string: Option<&str>) -> Self {
+        Aggregate::BulkString(string.map(|s| s.as_bytes().iter().map(|c| *c).collect()))
+    }
 }
 
 impl Hash for Aggregate {
@@ -446,28 +490,14 @@ mod tests {
 
         let parsed = Parser::new(s.chars().collect()).parse().unwrap();
 
-        assert!(parsed[0] == RESPData::Simple(Simple::String(String::from_str("OK").unwrap())));
-        assert!(
-            parsed[1]
-                == RESPData::Simple(Simple::Error(String::from_str("Error message").unwrap()))
-        );
-        assert!(
-            parsed[2]
-                == RESPData::Simple(Simple::Integer(Int {
-                    sign: Sign::Plus,
-                    value: 1000
-                }))
-        );
+        assert!(parsed[0] == RESPData::Simple(Simple::string("OK")));
+        assert!(parsed[1] == RESPData::Simple(Simple::error("Error message")));
+        assert!(parsed[2] == RESPData::Simple(Simple::from(1000)));
         assert!(parsed[3] == RESPData::Simple(Simple::Null));
-        assert!(parsed[4] == RESPData::Simple(Simple::Bool(true)));
-        assert!(
-            parsed[5]
-                == RESPData::Simple(Simple::Double(Double {
-                    sign: Sign::Plus,
-                    integral: 1,
-                    fractional: 23
-                }))
-        );
+        assert!(parsed[4] == RESPData::Simple(Simple::from(true)));
+        println!("{:?}", parsed[5]);
+        println!("{:?}", RESPData::Simple(Simple::from(1.23)));
+        assert!(parsed[5] == RESPData::Simple(Simple::from(1.23)));
     }
 
     #[test]
@@ -476,18 +506,8 @@ mod tests {
 
         let parsed = Parser::new(s.chars().collect()).parse().unwrap();
 
-        assert!(
-            parsed[0]
-                == RESPData::Aggregate(Aggregate::BulkString(Some(
-                    "hello".as_bytes().iter().map(|c| *c).collect()
-                )))
-        );
-        assert!(
-            parsed[1]
-                == RESPData::Aggregate(Aggregate::BulkString(Some(
-                    "".as_bytes().iter().map(|c| *c).collect()
-                )))
-        );
+        assert!(parsed[0] == RESPData::Aggregate(Aggregate::bulk_string(Some("hello"))));
+        assert!(parsed[1] == RESPData::Aggregate(Aggregate::bulk_string(Some(""))));
         assert!(parsed[2] == RESPData::Aggregate(Aggregate::BulkString(None)));
     }
 
@@ -498,16 +518,11 @@ mod tests {
         let parsed = Parser::new(s.chars().collect()).parse().unwrap();
 
         if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
-            assert!(array[0] == RESPData::Simple(Simple::Integer(Int::from(1))));
-            assert!(array[1] == RESPData::Simple(Simple::Integer(Int::from(2))));
-            assert!(array[2] == RESPData::Simple(Simple::Integer(Int::from(3))));
-            assert!(array[3] == RESPData::Simple(Simple::Integer(Int::from(4))));
-            assert!(
-                array[4]
-                    == RESPData::Aggregate(Aggregate::BulkString(Some(
-                        "hello".as_bytes().iter().map(|c| *c).collect()
-                    )))
-            );
+            assert!(array[0] == RESPData::Simple(Simple::from(1)));
+            assert!(array[1] == RESPData::Simple(Simple::from(2)));
+            assert!(array[2] == RESPData::Simple(Simple::from(3)));
+            assert!(array[3] == RESPData::Simple(Simple::from(4)));
+            assert!(array[4] == RESPData::Aggregate(Aggregate::bulk_string(Some("hello"))));
         } else {
             assert!(false);
         }
@@ -534,12 +549,7 @@ mod tests {
             assert!(array[1] == RESPData::Simple(Simple::Integer(Int::from(2))));
             assert!(array[2] == RESPData::Simple(Simple::Integer(Int::from(3))));
             assert!(array[3] == RESPData::Simple(Simple::Integer(Int::from(4))));
-            assert!(
-                array[4]
-                    == RESPData::Aggregate(Aggregate::BulkString(Some(
-                        "hello".as_bytes().iter().map(|c| *c).collect()
-                    )))
-            );
+            assert!(array[4] == RESPData::Aggregate(Aggregate::bulk_string(Some("hello"))));
         } else {
             assert!(false);
         }
