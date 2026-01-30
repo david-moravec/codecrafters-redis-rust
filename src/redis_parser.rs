@@ -57,6 +57,15 @@ impl Int {
     }
 }
 
+impl From<u64> for Int {
+    fn from(value: u64) -> Self {
+        Self {
+            sign: Sign::Plus,
+            value,
+        }
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct Double {
     sign: Sign,
@@ -101,6 +110,16 @@ impl Double {
                     None => 0,
                 }
             },
+        }
+    }
+}
+
+impl From<f64> for Double {
+    fn from(value: f64) -> Self {
+        Self {
+            sign: { if value < 0.0 { Sign::Minus } else { Sign::Plus } },
+            integral: value.round() as u64,
+            fractional: value.fract() as u64,
         }
     }
 }
@@ -247,39 +266,33 @@ impl Parser {
 
         let type_data = &self.buff[orig_pos..self.current];
 
-        match data_symbol {
-            '+' => Ok(Simple::String(String::from_iter(type_data.iter()))),
-            '-' => Ok(Simple::Error(String::from_iter(type_data.iter()))),
-            ':' => Ok(Simple::Integer(Int::new(type_data))),
-            '_' => Ok(Simple::Null),
-            '#' => Ok(Simple::Bool({
+        let result = match data_symbol {
+            '+' => Simple::String(String::from_iter(type_data.iter())),
+            '-' => Simple::Error(String::from_iter(type_data.iter())),
+            ':' => Simple::Integer(Int::new(type_data)),
+            '_' => Simple::Null,
+            '#' => Simple::Bool({
                 if type_data[0] == 't' {
-                    Ok(true)
+                    true
                 } else if type_data[0] == 'f' {
-                    Ok(false)
+                    false
                 } else {
-                    Err(anyhow!("Expected bool value (<t|f>) got {:}", type_data[0]))
+                    return Err(anyhow!("Expected bool value (<t|f>) got {:}", type_data[0]));
                 }
-            }?)),
-            ',' => Ok(Simple::Double(Double::new(type_data))),
+            }),
+            ',' => Simple::Double(Double::new(type_data)),
             '(' => todo!(),
-            c => Err(anyhow!("Unknown data symbol '{:}'", c)),
-        }
+            c => Err(anyhow!("Unknown data symbol '{:}'", c))?,
+        };
+
+        self.consume_CRLF()?;
+
+        Ok(result)
     }
 
     fn aggregate(&mut self) -> Result<Aggregate> {
         let data_symbol = self.advance()?;
         let length = self.get_data_length()?;
-
-        // NULL bulk string
-        if length != u64::MAX {
-            self.consume_CRLF()?;
-        }
-
-        let orig_pos = self.current;
-        self.advance_till_crlf_hit()?;
-
-        let type_data = &self.buff[orig_pos..self.current];
 
         match data_symbol {
             '$' => {
@@ -287,7 +300,16 @@ impl Parser {
                     if length == u64::MAX {
                         None
                     } else {
-                        Some(type_data.iter().collect::<String>().into_bytes())
+                        let orig_pos = self.current;
+                        self.advance_till_crlf_hit()?;
+                        let type_data = self.buff[orig_pos..self.current]
+                            .iter()
+                            .collect::<String>()
+                            .into_bytes();
+
+                        self.consume_CRLF()?;
+
+                        Some(type_data)
                     }
                 };
                 Ok(Aggregate::BulkString(inner_string))
@@ -301,13 +323,26 @@ impl Parser {
 
                 Ok(Aggregate::Array(data))
             }
-            '!' => Ok(Aggregate::BulkError(
-                type_data.iter().collect::<String>().into_bytes(),
-            )),
+            '!' => {
+                let orig_pos = self.current;
+                self.advance_till_crlf_hit()?;
+                let type_data = self.buff[orig_pos..self.current]
+                    .iter()
+                    .collect::<String>()
+                    .into_bytes();
+
+                self.consume_CRLF()?;
+
+                Ok(Aggregate::BulkError(type_data))
+            }
             '=' => {
+                let orig_pos = self.current;
+                self.advance_till_crlf_hit()?;
+                let type_data = &self.buff[orig_pos..self.current];
+
                 let mut split_at_colon = type_data.split(|c| *c == ':');
 
-                Ok(Aggregate::VerbatimString(
+                let res = Ok(Aggregate::VerbatimString(
                     Encoding::new(
                         split_at_colon
                             .next()
@@ -319,7 +354,10 @@ impl Parser {
                         .iter()
                         .collect::<String>()
                         .into_bytes(),
-                ))
+                ));
+                self.consume_CRLF()?;
+
+                res
             }
             '%' => {
                 let mut data: RESPMap = HashMap::new();
@@ -364,6 +402,7 @@ impl Parser {
         let orig_pos = self.current;
         self.advance_till_crlf_hit()?;
         let lenght_str = String::from_iter(self.buff[orig_pos..self.current].iter());
+        self.consume_CRLF()?;
 
         if lenght_str == "-1" {
             return Ok(u64::MAX);
@@ -375,14 +414,13 @@ impl Parser {
     }
 
     fn resp_data(&mut self) -> Result<RESPData> {
-        match self.peek().unwrap() {
-            '$' | '*' | '!' | '=' | '%' | '|' | '~' | '>' => {
-                Ok(RESPData::Aggregate(self.aggregate()?))
-            }
+        let result = match self.peek()? {
+            '$' | '*' | '!' | '=' | '%' | '|' | '~' | '>' => RESPData::Aggregate(self.aggregate()?),
+            '+' | '-' | ':' | '_' | '#' | ',' | '(' => RESPData::Simple(self.simple()?),
+            c => Err(anyhow!("Unknown data symbol '{:}'", c))?,
+        };
 
-            '+' | '-' | ':' | '_' | '#' | ',' | '(' => Ok(RESPData::Simple(self.simple()?)),
-            c => Err(anyhow!("Unknown data type  '{:}'", c)),
-        }
+        Ok(result)
     }
 
     pub fn parse(&mut self) -> Result<Vec<RESPData>> {
@@ -390,7 +428,6 @@ impl Parser {
 
         while !self.is_at_end() {
             result.push(self.resp_data()?);
-            self.consume_CRLF()?;
         }
 
         Ok(result)
@@ -434,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_aggregate() {
+    fn test_parse_aggregate_bulk_string() {
         let s = "$5\r\nhello\r\n$0\r\n\r\n$-1\r\n";
 
         let parsed = Parser::new(s.chars().collect()).parse().unwrap();
@@ -452,5 +489,59 @@ mod tests {
                 )))
         );
         assert!(parsed[2] == RESPData::Aggregate(Aggregate::BulkString(None)));
+    }
+
+    #[test]
+    fn test_parse_aggregate_array() {
+        let s = "*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$5\r\nhello\r\n";
+
+        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+
+        if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
+            assert!(array[0] == RESPData::Simple(Simple::Integer(Int::from(1))));
+            assert!(array[1] == RESPData::Simple(Simple::Integer(Int::from(2))));
+            assert!(array[2] == RESPData::Simple(Simple::Integer(Int::from(3))));
+            assert!(array[3] == RESPData::Simple(Simple::Integer(Int::from(4))));
+            assert!(
+                array[4]
+                    == RESPData::Aggregate(Aggregate::BulkString(Some(
+                        "hello".as_bytes().iter().map(|c| *c).collect()
+                    )))
+            );
+        } else {
+            assert!(false);
+        }
+
+        let s = "*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Hello\r\n-World\r\n";
+
+        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+
+        if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
+            assert!(matches!(array[0], RESPData::Aggregate(Aggregate::Array(_))));
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn test_parse_aggregate_map() {
+        let s = "*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$5\r\nhello\r\n";
+
+        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+
+        if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
+            assert!(array[0] == RESPData::Simple(Simple::Integer(Int::from(1))));
+            assert!(array[1] == RESPData::Simple(Simple::Integer(Int::from(2))));
+            assert!(array[2] == RESPData::Simple(Simple::Integer(Int::from(3))));
+            assert!(array[3] == RESPData::Simple(Simple::Integer(Int::from(4))));
+            assert!(
+                array[4]
+                    == RESPData::Aggregate(Aggregate::BulkString(Some(
+                        "hello".as_bytes().iter().map(|c| *c).collect()
+                    )))
+            );
+        } else {
+            assert!(false);
+        }
     }
 }
