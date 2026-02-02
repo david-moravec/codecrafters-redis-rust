@@ -235,14 +235,17 @@ enum RESPData {
     Aggregate(Aggregate),
 }
 
-struct Parser {
+pub struct Parser {
     buff: Vec<char>,
     current: usize,
 }
 
 impl Parser {
-    fn new(buff: Vec<char>) -> Self {
-        Parser { buff, current: 0 }
+    pub fn new() -> Self {
+        Parser {
+            buff: vec![],
+            current: 0,
+        }
     }
 
     fn peek(&self) -> Result<char> {
@@ -366,7 +369,7 @@ impl Parser {
                 let mut data: Vec<RESPData> = vec![];
 
                 for _ in 0..length {
-                    data.push(self.resp_data()?)
+                    data.push(self.next_resp_data()?)
                 }
 
                 Ok(Aggregate::Array(data))
@@ -411,7 +414,7 @@ impl Parser {
                 let mut data: RESPMap = HashMap::new();
 
                 for _ in 0..length {
-                    data.insert(self.resp_data()?, self.resp_data()?);
+                    data.insert(self.next_resp_data()?, self.next_resp_data()?);
                 }
 
                 Ok(Aggregate::Map(data))
@@ -420,7 +423,7 @@ impl Parser {
                 let mut data: RESPMap = HashMap::new();
 
                 for _ in 0..length {
-                    data.insert(self.resp_data()?, self.resp_data()?);
+                    data.insert(self.next_resp_data()?, self.next_resp_data()?);
                 }
 
                 Ok(Aggregate::Attribute(data))
@@ -428,7 +431,7 @@ impl Parser {
             '~' => {
                 let mut data = HashSet::new();
                 for _ in 0..length {
-                    data.insert(self.resp_data()?);
+                    data.insert(self.next_resp_data()?);
                 }
 
                 Ok(Aggregate::Set(data))
@@ -437,7 +440,7 @@ impl Parser {
                 let mut data: Vec<RESPData> = vec![];
 
                 for _ in 0..length {
-                    data.push(self.resp_data()?)
+                    data.push(self.next_resp_data()?)
                 }
 
                 Ok(Aggregate::Push(data))
@@ -461,7 +464,7 @@ impl Parser {
         Ok(length)
     }
 
-    fn resp_data(&mut self) -> Result<RESPData> {
+    pub fn next_resp_data(&mut self) -> Result<RESPData> {
         let result = match self.peek()? {
             '$' | '*' | '!' | '=' | '%' | '|' | '~' | '>' => RESPData::Aggregate(self.aggregate()?),
             '+' | '-' | ':' | '_' | '#' | ',' | '(' => RESPData::Simple(self.simple()?),
@@ -471,11 +474,14 @@ impl Parser {
         Ok(result)
     }
 
-    pub fn parse(&mut self) -> Result<Vec<RESPData>> {
+    pub fn parse(&mut self, buff: &str) -> Result<Vec<RESPData>> {
         let mut result = vec![];
 
+        self.buff = buff.chars().collect();
+        self.current = 0;
+
         while !self.is_at_end() {
-            result.push(self.resp_data()?);
+            result.push(self.next_resp_data()?);
         }
 
         Ok(result)
@@ -492,7 +498,7 @@ mod tests {
     fn test_parse_simple() {
         let s = "+OK\r\n-Error message\r\n:1000\r\n_\r\n#t\r\n,1.23\r\n";
 
-        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+        let parsed = Parser::new().parse(s).unwrap();
 
         assert!(parsed[0] == RESPData::Simple(Simple::string("OK")));
         assert!(parsed[1] == RESPData::Simple(Simple::error("Error message")));
@@ -508,7 +514,7 @@ mod tests {
     fn test_parse_aggregate_bulk_string() {
         let s = "$5\r\nhello\r\n$0\r\n\r\n$-1\r\n";
 
-        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+        let parsed = Parser::new().parse(s).unwrap();
 
         assert!(parsed[0] == RESPData::Aggregate(Aggregate::bulk_string(Some("hello"))));
         assert!(parsed[1] == RESPData::Aggregate(Aggregate::bulk_string(Some(""))));
@@ -519,7 +525,7 @@ mod tests {
     fn test_parse_aggregate_array() {
         let s = "*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$5\r\nhello\r\n";
 
-        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+        let parsed = Parser::new().parse(s).unwrap();
 
         if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
             assert!(array[0] == RESPData::Simple(Simple::from(1)));
@@ -533,7 +539,7 @@ mod tests {
 
         let s = "*2\r\n*3\r\n:1\r\n:2\r\n:3\r\n*2\r\n+Hello\r\n-World\r\n";
 
-        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+        let parsed = Parser::new().parse(s).unwrap();
 
         if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
             assert!(matches!(array[0], RESPData::Aggregate(Aggregate::Array(_))));
@@ -546,7 +552,7 @@ mod tests {
     fn test_parse_verbatim_string() {
         let s = "=15\r\ntxt:Some string\r\n";
 
-        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+        let parsed = Parser::new().parse(s).unwrap();
 
         assert!(
             parsed[0]
@@ -558,7 +564,7 @@ mod tests {
     fn test_parse_aggregate_map() {
         let s = "%2\r\n+first\r\n:1\r\n+second\r\n:2\r\n";
 
-        let parsed = Parser::new(s.chars().collect()).parse().unwrap();
+        let parsed = Parser::new().parse(s).unwrap();
 
         if let RESPData::Aggregate(Aggregate::Map(map)) = &parsed[0] {
             assert!(
