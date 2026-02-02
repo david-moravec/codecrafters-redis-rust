@@ -5,10 +5,10 @@ use std::{
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct BigInt {}
+pub struct BigInt {}
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-enum Sign {
+pub enum Sign {
     Plus,
     Minus,
 }
@@ -26,7 +26,7 @@ impl Sign {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct Int {
+pub struct Int {
     sign: Sign,
     value: u64,
 }
@@ -67,7 +67,7 @@ impl From<u64> for Int {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct Double {
+pub struct Double {
     sign: Sign,
     integral: u64,
     fractional: u64,
@@ -135,7 +135,7 @@ impl From<f64> for Double {
 }
 
 #[derive(Debug, Hash, PartialEq, PartialOrd, Eq)]
-enum Encoding {
+pub enum Encoding {
     TXT,
 }
 
@@ -152,7 +152,7 @@ impl Encoding {
 type RESPMap = HashMap<RESPData, RESPData>;
 
 #[derive(Hash, Debug, PartialEq, PartialOrd, Eq)]
-enum Simple {
+pub enum Simple {
     String(String),
     Error(String),
     Integer(Int),
@@ -169,6 +169,13 @@ impl Simple {
 
     fn string(string: &str) -> Self {
         Self::String(string.to_string())
+    }
+
+    pub fn serialize(&self) -> String {
+        match self {
+            Self::String(s) => format!("+{}\r\n", s),
+            _ => todo!(),
+        }
     }
 }
 
@@ -191,7 +198,7 @@ impl From<f64> for Simple {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Aggregate {
+pub enum Aggregate {
     BulkString(Option<Vec<u8>>),
     BulkError(Vec<u8>),
     VerbatimString(Encoding, Vec<u8>),
@@ -209,6 +216,10 @@ impl Aggregate {
 
     fn verbatim_string(encoding: Encoding, string: &str) -> Self {
         Aggregate::VerbatimString(encoding, string.as_bytes().iter().map(|c| *c).collect())
+    }
+
+    pub fn serialize(&self) -> String {
+        todo!()
     }
 }
 
@@ -230,9 +241,18 @@ impl Hash for Aggregate {
 }
 
 #[derive(Hash, Debug, PartialEq, Eq)]
-enum RESPData {
+pub enum RESPData {
     Simple(Simple),
     Aggregate(Aggregate),
+}
+
+impl RESPData {
+    pub fn serialize(&self) -> String {
+        match self {
+            Self::Simple(s) => s.serialize(),
+            Self::Aggregate(s) => s.serialize(),
+        }
+    }
 }
 
 pub struct Parser {

@@ -4,16 +4,27 @@ use std::net::{TcpListener, TcpStream};
 use std::thread;
 
 mod redis_parser;
+mod redis_vm;
+
+use crate::redis_vm::RedisVM;
 
 fn handle_connection(mut stream: TcpStream) {
     println!("accepted new connection");
+
+    let mut redis_vm = RedisVM::new();
 
     loop {
         let buf = BufReader::new(&mut stream);
         let request_line = buf.lines().next().unwrap();
 
-        match stream.write("+PONG\r\n".as_bytes()) {
-            Ok(_) => {}
+        match request_line {
+            Ok(s) => match redis_vm.handle(&s) {
+                Ok(_) => {
+                    redis_vm.flush_output(&mut stream).unwrap();
+                }
+                Err(e) => eprintln!("{}", e),
+            },
+
             Err(e) => {
                 eprintln!("{}", e);
             }
