@@ -14,16 +14,24 @@ fn handle_connection(mut stream: TcpStream) {
     let mut redis_vm = RedisVM::new();
 
     loop {
-        let buf = BufReader::new(&mut stream);
-        let request_line = buf.lines().next().unwrap();
+        let mut buf = BufReader::new(&mut stream);
+        let mut buff: [u8; 1024] = [0; 1024];
 
-        match request_line {
-            Ok(s) => match redis_vm.handle(&s) {
-                Ok(_) => {
-                    redis_vm.flush_output(&mut stream).unwrap();
+        let size = buf.read(&mut buff);
+
+        match size {
+            Ok(s) => {
+                if s == 0 {
+                    continue;
+                } else {
+                    match redis_vm.handle(&String::from_utf8_lossy(&buff[..s])) {
+                        Ok(_) => {
+                            redis_vm.flush_output(&mut stream).unwrap();
+                        }
+                        Err(e) => eprintln!("{}", e),
+                    }
                 }
-                Err(e) => eprintln!("{}", e),
-            },
+            }
 
             Err(e) => {
                 eprintln!("{}", e);
