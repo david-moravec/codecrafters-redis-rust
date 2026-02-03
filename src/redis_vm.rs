@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 
 use anyhow::{Result, anyhow};
 
+use crate::redis_db::RedisDB;
 use crate::redis_parser::{Aggregate, NULL_STRING, Parser, RESPData, RESPMap, Simple};
 
 enum Builtin {
@@ -34,7 +35,7 @@ impl Builtin {
 pub struct RedisVM {
     parser: Parser,
     output: RefCell<Vec<String>>,
-    map: RefCell<RESPMap>,
+    db: RefCell<RedisDB>,
 }
 
 impl RedisVM {
@@ -42,7 +43,7 @@ impl RedisVM {
         RedisVM {
             parser: Parser::new(),
             output: RefCell::new(vec![]),
-            map: RefCell::new(RESPMap::new()),
+            db: RefCell::new(RedisDB::new()),
         }
     }
 
@@ -85,13 +86,13 @@ impl RedisVM {
                     Builtin::ECHO => self.output_data(&array[1]),
                     Builtin::PING => self.to_output(format!("+PONG\r\n")),
                     Builtin::SET => {
-                        self.map
+                        self.db
                             .borrow_mut()
-                            .insert(array[1].clone(), array[2].clone());
+                            .insert(array[1].clone(), array[2].clone(), None);
                         self.output_ok();
                     }
                     Builtin::GET => {
-                        self.output_data_opt(self.map.borrow().get(&array[1]));
+                        self.output_data_opt(self.db.borrow_mut().get(&array[1]));
                     }
                 },
                 None => {}

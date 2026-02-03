@@ -3,6 +3,7 @@ use std::io::{BufReader, Write, prelude::*};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 
+mod redis_db;
 mod redis_parser;
 mod redis_vm;
 
