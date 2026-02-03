@@ -219,7 +219,17 @@ impl Aggregate {
     }
 
     pub fn serialize(&self) -> String {
-        todo!()
+        match self {
+            Self::BulkString(bytes) => match bytes {
+                Some(b) => {
+                    format!("${:}\r\n{}\r\n", b.len(), str::from_utf8(b).unwrap())
+                }
+                None => {
+                    format!("$-1\r\n")
+                }
+            },
+            _ => todo!(),
+        }
     }
 }
 
