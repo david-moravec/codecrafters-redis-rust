@@ -2,12 +2,13 @@ use anyhow::{Result, anyhow};
 use std::{
     collections::{HashMap, HashSet, btree_map::Range},
     hash::Hash,
+    str::FromStr,
 };
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Clone, Copy, Ord)]
 pub struct BigInt {}
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Clone, Copy, Ord)]
 pub enum Sign {
     Plus,
     Minus,
@@ -25,7 +26,7 @@ impl Sign {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Hash, PartialEq, Clone, Copy, Eq, PartialOrd, Ord)]
 pub struct Int {
     sign: Sign,
     value: u64,
@@ -66,7 +67,7 @@ impl From<u64> for Int {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Double {
     sign: Sign,
     integral: u64,
@@ -134,7 +135,7 @@ impl From<f64> for Double {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, PartialOrd, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, PartialOrd, Eq)]
 pub enum Encoding {
     TXT,
 }
@@ -149,9 +150,9 @@ impl Encoding {
     }
 }
 
-type RESPMap = HashMap<RESPData, RESPData>;
+pub type RESPMap = HashMap<RESPData, RESPData>;
 
-#[derive(Hash, Debug, PartialEq, PartialOrd, Eq)]
+#[derive(Hash, Clone, Debug, PartialEq, PartialOrd, Eq)]
 pub enum Simple {
     String(String),
     Error(String),
@@ -169,6 +170,10 @@ impl Simple {
 
     fn string(string: &str) -> Self {
         Self::String(string.to_string())
+    }
+
+    pub fn ok() -> Self {
+        Self::string("OK")
     }
 
     pub fn serialize(&self) -> String {
@@ -197,7 +202,7 @@ impl From<f64> for Simple {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Aggregate {
     BulkString(Option<Vec<u8>>),
     BulkError(Vec<u8>),
@@ -233,6 +238,8 @@ impl Aggregate {
     }
 }
 
+pub static NULL_STRING: RESPData = RESPData::Aggregate(Aggregate::BulkString(None));
+
 impl Hash for Aggregate {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
@@ -250,7 +257,7 @@ impl Hash for Aggregate {
     }
 }
 
-#[derive(Hash, Debug, PartialEq, Eq)]
+#[derive(Hash, Debug, PartialEq, Eq, Clone)]
 pub enum RESPData {
     Simple(Simple),
     Aggregate(Aggregate),
