@@ -86,9 +86,17 @@ impl RedisVM {
                     Builtin::ECHO => self.output_data(&array[1]),
                     Builtin::PING => self.to_output(format!("+PONG\r\n")),
                     Builtin::SET => {
-                        self.db
-                            .borrow_mut()
-                            .insert(array[1].clone(), array[2].clone(), None);
+                        let mut expiry_args: Option<(&RESPData, &RESPData)> = None;
+
+                        if array.len() > 3 {
+                            expiry_args = Some((&array[3], &array[4]));
+                        }
+
+                        self.db.borrow_mut().insert(
+                            array[1].clone(),
+                            array[2].clone(),
+                            expiry_args,
+                        )?;
                         self.output_ok();
                     }
                     Builtin::GET => {

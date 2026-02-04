@@ -270,6 +270,12 @@ impl RESPData {
             Self::Aggregate(s) => s.serialize(),
         }
     }
+
+    pub fn bulk_string(s: &str) -> Self {
+        Self::Aggregate(Aggregate::BulkString(Some(
+            s.as_bytes().iter().map(|b| *b).collect(),
+        )))
+    }
 }
 
 pub struct Parser {
