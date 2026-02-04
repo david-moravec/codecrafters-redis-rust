@@ -64,15 +64,20 @@ impl TryFrom<(&RESPData, &RESPData)> for Expiry {
     }
 }
 
+type Db = HashMap<RESPData, RESPData>;
+type ListDb = HashMap<RESPData, Vec<RESPData>>;
+
 pub struct RedisDB {
-    db: RESPMap,
+    db: Db,
+    list_db: ListDb,
     expiry: HashMap<RESPData, Expiry>,
 }
 
 impl RedisDB {
     pub fn new() -> Self {
         Self {
-            db: RESPMap::new(),
+            db: Db::new(),
+            list_db: ListDb::new(),
             expiry: HashMap::new(),
         }
     }
@@ -88,6 +93,20 @@ impl RedisDB {
         }
 
         Ok(self.db.insert(key, value))
+    }
+
+    pub fn push(&mut self, key: RESPData, value: RESPData) -> u64 {
+        let length;
+
+        if let Some(v) = self.list_db.get_mut(&key) {
+            v.push(value);
+            length = v.len();
+        } else {
+            self.list_db.insert(key, vec![value]);
+            length = 1;
+        }
+
+        length as u64
     }
 
     pub fn get(&mut self, key: &RESPData) -> Option<&RESPData> {
@@ -139,5 +158,16 @@ mod tests {
         let duration_resp = (&RESPData::bulk_string("EX"), &RESPData::bulk_string("18"));
         let expiry = Expiry::try_from(duration_resp).unwrap();
         assert!(expiry.duration == Duration::from_secs(18));
+    }
+
+    #[test]
+    fn test_push() {
+        let mut db = RedisDB::new();
+
+        assert!(db.push(RESPData::bulk_string("list_key"), NULL_STRING.clone()) == 1);
+        assert!(db.push(RESPData::bulk_string("list_key"), NULL_STRING.clone()) == 2);
+        assert!(db.push(RESPData::bulk_string("list_key"), NULL_STRING.clone()) == 3);
+
+        assert!(db.push(RESPData::bulk_string("list_key1"), NULL_STRING.clone()) == 1);
     }
 }

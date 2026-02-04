@@ -12,6 +12,7 @@ enum Builtin {
     PING,
     GET,
     SET,
+    RPUSH,
 }
 
 impl Builtin {
@@ -26,6 +27,8 @@ impl Builtin {
             return Ok(Self::GET);
         } else if command == "SET" {
             return Ok(Self::SET);
+        } else if command == "RPUSH" {
+            return Ok(Self::RPUSH);
         }
 
         Err(anyhow!("Unknown command {:}", command))
@@ -102,6 +105,11 @@ impl RedisVM {
                     Builtin::GET => {
                         self.output_data_opt(self.db.borrow_mut().get(&array[1]));
                     }
+                    Builtin::RPUSH => self.output_data(&RESPData::from(
+                        self.db
+                            .borrow_mut()
+                            .push(array[1].clone(), array[2].clone()),
+                    )),
                 },
                 None => {}
             },
@@ -212,5 +220,21 @@ mod tests {
             &mut vm,
         );
         test_request_response_vm("*2\r\n$3\r\nGET\r\n$3\r\nfoo\r\n", "$3\r\nbar\r\n", &mut vm);
+    }
+
+    #[test]
+    fn test_push_command() {
+        let mut vm = RedisVM::new();
+
+        test_request_response_vm(
+            "*3\r\n$5\r\nRPUSH\r\n$3\r\nfoo\r\n$3\r\nbar\r\n",
+            ":1\r\n",
+            &mut vm,
+        );
+        test_request_response_vm(
+            "*3\r\n$5\r\nRPUSH\r\n$3\r\nfoo\r\n$3\r\nhey\r\n",
+            ":2\r\n",
+            &mut vm,
+        );
     }
 }

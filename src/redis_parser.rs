@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 use std::{
     collections::{HashMap, HashSet, btree_map::Range},
+    fmt,
     hash::Hash,
     str::FromStr,
 };
@@ -22,6 +23,15 @@ impl Sign {
             Some(Self::Plus)
         } else {
             None
+        }
+    }
+}
+
+impl fmt::Display for Sign {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Plus => write!(f, ""),
+            Self::Minus => write!(f, "-"),
         }
     }
 }
@@ -64,6 +74,12 @@ impl From<u64> for Int {
             sign: Sign::Plus,
             value,
         }
+    }
+}
+
+impl fmt::Display for Int {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{:}", self.sign, self.value)
     }
 }
 
@@ -179,6 +195,7 @@ impl Simple {
     pub fn serialize(&self) -> String {
         match self {
             Self::String(s) => format!("+{}\r\n", s),
+            Self::Integer(i) => format!(":{}\r\n", i),
             _ => todo!(),
         }
     }
@@ -275,6 +292,12 @@ impl RESPData {
         Self::Aggregate(Aggregate::BulkString(Some(
             s.as_bytes().iter().map(|b| *b).collect(),
         )))
+    }
+}
+
+impl From<u64> for RESPData {
+    fn from(value: u64) -> Self {
+        Self::Simple(Simple::Integer(Int::from(value)))
     }
 }
 
