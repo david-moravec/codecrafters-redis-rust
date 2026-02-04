@@ -109,6 +109,27 @@ impl RedisDB {
         length as u64
     }
 
+    fn push_no_default(&mut self, key: &RESPData, value: RESPData) -> u64 {
+        let v = self.list_db.get_mut(key).unwrap();
+        v.push(value);
+
+        v.len() as u64
+    }
+
+    pub fn push_many(&mut self, key: RESPData, mut values: Vec<RESPData>) -> u64 {
+        let mut result: u64 = 0;
+
+        let key_copy = key.clone();
+
+        let mut result = self.push(key, values.remove(0));
+
+        for value in values.into_iter() {
+            result = self.push_no_default(&key_copy, value);
+        }
+
+        result
+    }
+
     pub fn get(&mut self, key: &RESPData) -> Option<&RESPData> {
         if let Some(expiry) = self.expiry.get(key) {
             if expiry.expired() {
