@@ -2,6 +2,7 @@ use core::time;
 use std::{
     cell::RefCell,
     collections::HashMap,
+    ops::Range,
     time::{Duration, Instant},
 };
 
@@ -36,7 +37,8 @@ impl TryFrom<(&RESPData, &RESPData)> for Expiry {
         let duration: u64;
 
         if let RESPData::Aggregate(Aggregate::BulkString(Some(b))) = value.1 {
-            duration = str::from_utf8(&b[..])?.parse::<u64>()?;
+            // duration = str::from_utf8(&b[..])?.parse::<u64>()?;
+            duration = value.1.try_bulk_string_to_u64()?;
 
             if let RESPData::Aggregate(Aggregate::BulkString(Some(s))) = value.0 {
                 if str::from_utf8(&s[..]).map(|s| s.to_uppercase()) == Ok("PX".to_string()) {
@@ -141,6 +143,32 @@ impl RedisDB {
         }
 
         self.db.get(key)
+    }
+
+    pub fn get_list(&self, key: &RESPData) -> Option<&Vec<RESPData>> {
+        self.list_db.get(key)
+    }
+
+    pub fn list_range(
+        &self,
+        key: &RESPData,
+        start: &RESPData,
+        stop: &RESPData,
+    ) -> Result<RESPData> {
+        if let Some(list) = self.get_list(key) {
+            let start = start.try_bulk_string_to_u64()? as usize;
+            let mut stop = stop.try_bulk_string_to_u64()? as usize;
+
+            if start >= list.len() || start > stop {
+                return Ok(RESPData::from_iter([].iter()));
+            } else if stop >= list.len() {
+                stop = list.len() - 1;
+            }
+
+            Ok(RESPData::from_iter(&list[start..=stop]))
+        } else {
+            Ok(RESPData::from_iter([].iter()))
+        }
     }
 }
 

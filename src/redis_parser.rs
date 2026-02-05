@@ -219,6 +219,17 @@ impl From<f64> for Simple {
     }
 }
 
+impl<'a> FromIterator<&'a RESPData> for RESPData {
+    fn from_iter<T: IntoIterator<Item = &'a RESPData>>(iter: T) -> Self {
+        let vec = iter
+            .into_iter()
+            .map(|c| c.clone())
+            .collect::<Vec<RESPData>>();
+
+        return Self::Aggregate(Aggregate::Array(vec));
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Aggregate {
     BulkString(Option<Vec<u8>>),
@@ -250,6 +261,15 @@ impl Aggregate {
                     format!("$-1\r\n")
                 }
             },
+            Self::Array(list) => {
+                let mut s = format!("*{}\r\n", list.len());
+
+                for data in list {
+                    s.push_str(&data.serialize());
+                }
+
+                s
+            }
             _ => todo!(),
         }
     }
@@ -292,6 +312,14 @@ impl RESPData {
         Self::Aggregate(Aggregate::BulkString(Some(
             s.as_bytes().iter().map(|b| *b).collect(),
         )))
+    }
+
+    pub fn try_bulk_string_to_u64(&self) -> Result<u64> {
+        if let RESPData::Aggregate(Aggregate::BulkString(Some(b))) = self {
+            Ok(str::from_utf8(&b[..])?.parse::<u64>()?)
+        } else {
+            Err(anyhow!("Parsing failed"))
+        }
     }
 }
 
