@@ -38,7 +38,7 @@ impl TryFrom<(&RESPData, &RESPData)> for Expiry {
 
         if let RESPData::Aggregate(Aggregate::BulkString(Some(b))) = value.1 {
             // duration = str::from_utf8(&b[..])?.parse::<u64>()?;
-            duration = value.1.try_bulk_string_to_u64()?;
+            duration = value.1.try_bulk_string_to_int()? as u64;
 
             if let RESPData::Aggregate(Aggregate::BulkString(Some(s))) = value.0 {
                 if str::from_utf8(&s[..]).map(|s| s.to_uppercase()) == Ok("PX".to_string()) {
@@ -119,8 +119,6 @@ impl RedisDB {
     }
 
     pub fn push_many(&mut self, key: RESPData, mut values: Vec<RESPData>) -> u64 {
-        let mut result: u64 = 0;
-
         let key_copy = key.clone();
 
         let mut result = self.push(key, values.remove(0));
@@ -156,8 +154,32 @@ impl RedisDB {
         stop: &RESPData,
     ) -> Result<RESPData> {
         if let Some(list) = self.get_list(key) {
-            let start = start.try_bulk_string_to_u64()? as usize;
-            let mut stop = stop.try_bulk_string_to_u64()? as usize;
+            let start = start.try_bulk_string_to_int()?;
+            let stop = stop.try_bulk_string_to_int()?;
+
+            let start = {
+                if start < 0 {
+                    let mut a = list.len() as i128 + start;
+                    if a < 0 {
+                        a = 0;
+                    }
+                    a as usize
+                } else {
+                    start as usize
+                }
+            };
+
+            let mut stop = {
+                if stop < 0 {
+                    let mut a = list.len() as i128 + stop;
+                    if a < 0 {
+                        a = 0;
+                    }
+                    a as usize
+                } else {
+                    stop as usize
+                }
+            };
 
             if start >= list.len() || start > stop {
                 return Ok(RESPData::from_iter([].iter()));

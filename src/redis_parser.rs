@@ -36,52 +36,67 @@ impl fmt::Display for Sign {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, Clone, Copy, Eq, PartialOrd, Ord)]
-pub struct Int {
-    sign: Sign,
-    value: u64,
-}
+// #[derive(Debug, Hash, PartialEq, Clone, Copy, Eq, PartialOrd, Ord)]
+// pub struct Int {
+//     sign: Sign,
+//     value: u64,
+// }
 
-impl Int {
-    fn new(chars: &[char]) -> Self {
-        let range: std::ops::RangeFrom<usize>;
+// impl Int {
+//     fn new(chars: &[char]) -> Self {
+//         let range: std::ops::RangeFrom<usize>;
 
-        let s = match Sign::new(chars[0]) {
-            Some(s) => {
-                range = 1..;
-                s
-            }
-            None => {
-                range = 0..;
-                Sign::Plus
-            }
-        };
+//         let s = match Sign::new(chars[0]) {
+//             Some(s) => {
+//                 range = 1..;
+//                 s
+//             }
+//             None => {
+//                 range = 0..;
+//                 Sign::Plus
+//             }
+//         };
 
-        Self {
-            sign: s,
-            value: chars[range]
-                .iter()
-                .collect::<String>()
-                .parse::<u64>()
-                .expect(&format!("Expected number got {:?}", chars)),
-        }
-    }
-}
+//         Self {
+//             sign: s,
+//             value: chars[range]
+//                 .iter()
+//                 .collect::<String>()
+//                 .parse::<u64>()
+//                 .expect(&format!("Expected number got {:?}", chars)),
+//         }
+//     }
+// }
 
-impl From<u64> for Int {
-    fn from(value: u64) -> Self {
-        Self {
-            sign: Sign::Plus,
-            value,
-        }
-    }
-}
+// impl From<u64> for Int {
+//     fn from(value: u64) -> Self {
+//         Self {
+//             sign: Sign::Plus,
+//             value,
+//         }
+//     }
+// }
 
-impl fmt::Display for Int {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{:}", self.sign, self.value)
-    }
-}
+// impl TryFrom<&Vec<u8>> for Int {
+//     type Error = anyhow::Error;
+
+//     fn try_from(value: &Vec<u8>) -> std::result::Result<Self, Self::Error> {
+//         if value[0] == '-' as u8 {
+//             Ok(Self {
+//                 sign: Sign::Minus,
+//                 value: str::from_utf8(&value[1..])?.parse::<u64>()?,
+//             })
+//         } else {
+//             Ok(Self::from(str::from_utf8(&value[..])?.parse::<u64>()?))
+//         }
+//     }
+// }
+
+// impl fmt::Display for Int {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "{}{:}", self.sign, self.value)
+//     }
+// }
 
 #[derive(Debug, Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Double {
@@ -172,7 +187,7 @@ pub type RESPMap = HashMap<RESPData, RESPData>;
 pub enum Simple {
     String(String),
     Error(String),
-    Integer(Int),
+    Integer(i128),
     Null,
     Bool(bool),
     Double(Double),
@@ -209,7 +224,7 @@ impl From<bool> for Simple {
 
 impl From<u64> for Simple {
     fn from(value: u64) -> Self {
-        Self::Integer(Int::from(value))
+        Self::Integer(value as i128)
     }
 }
 
@@ -314,9 +329,9 @@ impl RESPData {
         )))
     }
 
-    pub fn try_bulk_string_to_u64(&self) -> Result<u64> {
+    pub fn try_bulk_string_to_int(&self) -> Result<i128> {
         if let RESPData::Aggregate(Aggregate::BulkString(Some(b))) = self {
-            Ok(str::from_utf8(&b[..])?.parse::<u64>()?)
+            Ok(str::from_utf8(b)?.parse::<i128>()?)
         } else {
             Err(anyhow!("Parsing failed"))
         }
@@ -325,7 +340,7 @@ impl RESPData {
 
 impl From<u64> for RESPData {
     fn from(value: u64) -> Self {
-        Self::Simple(Simple::Integer(Int::from(value)))
+        Self::Simple(Simple::Integer(value as i128))
     }
 }
 
@@ -414,7 +429,7 @@ impl Parser {
         let result = match data_symbol {
             '+' => Simple::String(String::from_iter(type_data.iter())),
             '-' => Simple::Error(String::from_iter(type_data.iter())),
-            ':' => Simple::Integer(Int::new(type_data)),
+            ':' => Simple::Integer(type_data.iter().collect::<String>().parse::<i128>()?),
             '_' => Simple::Null,
             '#' => Simple::Bool({
                 if type_data[0] == 't' {
@@ -663,11 +678,11 @@ mod tests {
         if let RESPData::Aggregate(Aggregate::Map(map)) = &parsed[0] {
             assert!(
                 map.get(&RESPData::Simple(Simple::string("first")))
-                    == Some(&RESPData::Simple(Simple::Integer(Int::from(1))))
+                    == Some(&RESPData::Simple(Simple::Integer(1)))
             );
             assert!(
                 map.get(&RESPData::Simple(Simple::string("second")))
-                    == Some(&RESPData::Simple(Simple::Integer(Int::from(2))))
+                    == Some(&RESPData::Simple(Simple::Integer(2)))
             );
         } else {
             assert!(false);
