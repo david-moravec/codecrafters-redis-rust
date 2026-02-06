@@ -146,7 +146,15 @@ impl RedisVM {
                         );
                     }
                     Builtin::LLEN => self.output_data(&self.db.borrow().list_len(&array[1])),
-                    Builtin::LPOP => self.output_data(&self.db.borrow_mut().list_pop(&array[1])),
+                    Builtin::LPOP => self.output_data(&{
+                        if array.len() == 2 {
+                            self.db.borrow_mut().list_pop(&array[1])
+                        } else {
+                            self.db
+                                .borrow_mut()
+                                .list_pop_many(&array[1], array[2].try_bulk_string_to_int()? as u64)
+                        }
+                    }),
                 },
                 None => {}
             },

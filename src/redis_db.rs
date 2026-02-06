@@ -166,6 +166,16 @@ impl RedisDB {
         }
     }
 
+    pub fn list_pop_many(&mut self, key: &RESPData, count: u64) -> RESPData {
+        let mut result: Vec<RESPData> = vec![];
+
+        for _ in 0..count {
+            result.push(self.list_pop(key))
+        }
+
+        RESPData::from_iter(result.iter())
+    }
+
     fn get_list_default_mut(&mut self, key: &RESPData) -> &mut Vec<RESPData> {
         if self.list_db.contains_key(&key) {
             self.list_db.get_mut(key).unwrap()
