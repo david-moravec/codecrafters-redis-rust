@@ -97,18 +97,11 @@ impl RedisDB {
         Ok(self.db.insert(key, value))
     }
 
-    pub fn push(&mut self, key: RESPData, value: RESPData) -> u64 {
-        let length;
+    pub fn push(&mut self, key: &RESPData, value: RESPData) -> u64 {
+        let list = self.get_list_default_mut(key);
+        list.push(value);
 
-        if let Some(v) = self.list_db.get_mut(&key) {
-            v.push(value);
-            length = v.len();
-        } else {
-            self.list_db.insert(key, vec![value]);
-            length = 1;
-        }
-
-        length as u64
+        list.len() as u64
     }
 
     fn push_no_default(&mut self, key: &RESPData, value: RESPData) -> u64 {
@@ -118,13 +111,11 @@ impl RedisDB {
         v.len() as u64
     }
 
-    pub fn push_many(&mut self, key: RESPData, mut values: Vec<RESPData>) -> u64 {
-        let key_copy = key.clone();
-
-        let mut result = self.push(key, values.remove(0));
+    pub fn push_many(&mut self, key: &RESPData, mut values: Vec<RESPData>) -> u64 {
+        let mut result = 0;
 
         for value in values.into_iter() {
-            result = self.push_no_default(&key_copy, value);
+            result = self.push_no_default(key, value);
         }
 
         result
@@ -145,6 +136,15 @@ impl RedisDB {
 
     pub fn get_list(&self, key: &RESPData) -> Option<&Vec<RESPData>> {
         self.list_db.get(key)
+    }
+
+    fn get_list_default_mut(&mut self, key: &RESPData) -> &mut Vec<RESPData> {
+        if self.list_db.contains_key(&key) {
+            self.list_db.get_mut(key).unwrap()
+        } else {
+            self.list_db.insert(key.clone(), vec![]);
+            self.list_db.get_mut(key).unwrap()
+        }
     }
 
     pub fn list_range(
@@ -234,11 +234,13 @@ mod tests {
     #[test]
     fn test_push() {
         let mut db = RedisDB::new();
+        let key = RESPData::bulk_string("list_key");
+        let key1 = RESPData::bulk_string("list_key1");
 
-        assert!(db.push(RESPData::bulk_string("list_key"), NULL_STRING.clone()) == 1);
-        assert!(db.push(RESPData::bulk_string("list_key"), NULL_STRING.clone()) == 2);
-        assert!(db.push(RESPData::bulk_string("list_key"), NULL_STRING.clone()) == 3);
+        assert!(db.push(&key, NULL_STRING.clone()) == 1);
+        assert!(db.push(&key, NULL_STRING.clone()) == 2);
+        assert!(db.push(&key, NULL_STRING.clone()) == 3);
 
-        assert!(db.push(RESPData::bulk_string("list_key1"), NULL_STRING.clone()) == 1);
+        assert!(db.push(&key1, NULL_STRING.clone()) == 1);
     }
 }

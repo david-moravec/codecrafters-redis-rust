@@ -110,12 +110,10 @@ impl RedisVM {
                     }
                     Builtin::RPUSH => self.output_data(&RESPData::from({
                         if array.len() == 3 {
-                            self.db
-                                .borrow_mut()
-                                .push(array[1].clone(), array[2].clone())
+                            self.db.borrow_mut().push(&array[1], array[2].clone())
                         } else {
                             self.db.borrow_mut().push_many(
-                                array[1].clone(),
+                                &array[1],
                                 array[2..].iter().map(|v| v.clone()).collect(),
                             )
                         }
