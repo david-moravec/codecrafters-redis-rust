@@ -403,17 +403,7 @@ impl Parser {
 
     fn advance_till_crlf_hit(&mut self) -> Result<()> {
         while !self.is_at_end() && !self.is_at_crlf() {
-            self.advance();
-        }
-
-        Ok(())
-    }
-
-    fn advance_until(&mut self, c: char) -> Result<()> {
-        loop {
-            if self.advance()? == c {
-                break;
-            }
+            self.advance()?;
         }
 
         Ok(())
