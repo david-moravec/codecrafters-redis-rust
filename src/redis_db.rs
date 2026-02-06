@@ -148,6 +148,13 @@ impl RedisDB {
         self.list_db.get(key)
     }
 
+    pub fn list_len(&self, key: &RESPData) -> RESPData {
+        match self.get_list(key) {
+            Some(l) => RESPData::from(l.len() as u64),
+            None => RESPData::from(0),
+        }
+    }
+
     fn get_list_default_mut(&mut self, key: &RESPData) -> &mut Vec<RESPData> {
         if self.list_db.contains_key(&key) {
             self.list_db.get_mut(key).unwrap()
