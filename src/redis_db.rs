@@ -104,18 +104,28 @@ impl RedisDB {
         list.len() as u64
     }
 
-    fn push_no_default(&mut self, key: &RESPData, value: RESPData) -> u64 {
-        let v = self.list_db.get_mut(key).unwrap();
-        v.push(value);
+    pub fn lpush(&mut self, key: &RESPData, value: RESPData) -> u64 {
+        let list = self.get_list_default_mut(key);
+        list.insert(0, value);
 
-        v.len() as u64
+        list.len() as u64
     }
 
-    pub fn push_many(&mut self, key: &RESPData, mut values: Vec<RESPData>) -> u64 {
+    pub fn push_many(&mut self, key: &RESPData, values: Vec<RESPData>) -> u64 {
         let mut result = 0;
 
         for value in values.into_iter() {
-            result = self.push_no_default(key, value);
+            result = self.push(key, value);
+        }
+
+        result
+    }
+
+    pub fn lpush_many(&mut self, key: &RESPData, values: Vec<RESPData>) -> u64 {
+        let mut result = 0;
+
+        for value in values.into_iter() {
+            result = self.lpush(key, value);
         }
 
         result

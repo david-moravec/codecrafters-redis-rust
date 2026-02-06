@@ -13,6 +13,7 @@ enum Builtin {
     GET,
     SET,
     RPUSH,
+    LPUSH,
     LRANGE,
 }
 
@@ -30,6 +31,8 @@ impl Builtin {
             return Ok(Self::SET);
         } else if command == "RPUSH" {
             return Ok(Self::RPUSH);
+        } else if command == "LPUSH" {
+            return Ok(Self::LPUSH);
         } else if command == "LRANGE" {
             return Ok(Self::LRANGE);
         }
@@ -113,6 +116,16 @@ impl RedisVM {
                             self.db.borrow_mut().push(&array[1], array[2].clone())
                         } else {
                             self.db.borrow_mut().push_many(
+                                &array[1],
+                                array[2..].iter().map(|v| v.clone()).collect(),
+                            )
+                        }
+                    })),
+                    Builtin::LPUSH => self.output_data(&RESPData::from({
+                        if array.len() == 3 {
+                            self.db.borrow_mut().lpush(&array[1], array[2].clone())
+                        } else {
+                            self.db.borrow_mut().lpush_many(
                                 &array[1],
                                 array[2..].iter().map(|v| v.clone()).collect(),
                             )
