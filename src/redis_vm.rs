@@ -16,6 +16,7 @@ enum Builtin {
     LPUSH,
     LRANGE,
     LLEN,
+    LPOP,
 }
 
 impl Builtin {
@@ -38,6 +39,8 @@ impl Builtin {
             return Ok(Self::LRANGE);
         } else if command == "LLEN" {
             return Ok(Self::LLEN);
+        } else if command == "LPOP" {
+            return Ok(Self::LPOP);
         }
 
         Err(anyhow!("Unknown command {:}", command))
@@ -143,6 +146,7 @@ impl RedisVM {
                         );
                     }
                     Builtin::LLEN => self.output_data(&self.db.borrow().list_len(&array[1])),
+                    Builtin::LPOP => self.output_data(&self.db.borrow_mut().list_pop(&array[1])),
                 },
                 None => {}
             },

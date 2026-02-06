@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 
-use crate::redis_parser::{Aggregate, RESPData, RESPMap};
+use crate::redis_parser::{Aggregate, NULL_STRING, RESPData, RESPMap};
 
 struct Expiry {
     now: Instant,
@@ -148,10 +148,21 @@ impl RedisDB {
         self.list_db.get(key)
     }
 
+    pub fn get_list_mut(&mut self, key: &RESPData) -> Option<&mut Vec<RESPData>> {
+        self.list_db.get_mut(key)
+    }
+
     pub fn list_len(&self, key: &RESPData) -> RESPData {
         match self.get_list(key) {
             Some(l) => RESPData::from(l.len() as u64),
             None => RESPData::from(0),
+        }
+    }
+
+    pub fn list_pop(&mut self, key: &RESPData) -> RESPData {
+        match self.get_list_mut(key) {
+            Some(l) => l.remove(0),
+            None => NULL_STRING.clone(),
         }
     }
 
