@@ -336,6 +336,10 @@ impl RESPData {
             Err(anyhow!("Parsing failed"))
         }
     }
+
+    pub fn ok() -> Self {
+        Self::Simple(Simple::ok())
+    }
 }
 
 impl From<u64> for RESPData {

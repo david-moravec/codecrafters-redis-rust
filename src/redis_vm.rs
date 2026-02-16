@@ -63,24 +63,26 @@ impl RedisVM {
     }
 
     pub fn handle(&mut self, request_buff: &str) -> Result<()> {
-        for request_parsed in self.parser.parse(request_buff)?.iter() {
+        for request_parsed in self.parser.parse(request_buff)?.into_iter() {
             self.handle_request(request_parsed)?;
         }
 
         Ok(())
     }
 
-    fn handle_request(&self, request: &RESPData) -> Result<()> {
+    fn handle_request(&self, request: RESPData) -> Result<()> {
         match request {
-            RESPData::Aggregate(Aggregate::Array(array)) => self.handle_request_array(array),
+            RESPData::Aggregate(Aggregate::Array(array)) => {
+                Ok(self.output_data(&self.handle_request_array(array)?))
+            }
             RESPData::Simple(s) => self.handle_request_simple(s),
             _ => todo!(),
         }
     }
 
-    fn handle_request_simple(&self, request: &Simple) -> Result<()> {
+    fn handle_request_simple(&self, request: Simple) -> Result<()> {
         match request {
-            Simple::String(command) => match Builtin::new(command)? {
+            Simple::String(command) => match Builtin::new(&command)? {
                 Builtin::PING => self.to_output(format!("+PONG\r\n")),
                 _ => Err(anyhow!("{} Is not simple command", command))?,
             },
@@ -90,16 +92,16 @@ impl RedisVM {
         Ok(())
     }
 
-    fn handle_request_array(&self, array: &[RESPData]) -> Result<()> {
-        match array[0] {
+    fn handle_request_array(&self, mut array: Vec<RESPData>) -> Result<RESPData> {
+        Ok(match array[0] {
             RESPData::Simple(Simple::String(ref command)) => match Builtin::new(command)? {
-                Builtin::PING => self.to_output(array[1].serialize()),
+                Builtin::PING => array.remove(1),
                 _ => Err(anyhow!("{} Is not simple command", command))?,
             },
             RESPData::Aggregate(Aggregate::BulkString(ref command)) => match command {
                 Some(c) => match Builtin::new(str::from_utf8(c)?)? {
-                    Builtin::ECHO => self.output_data(&array[1]),
-                    Builtin::PING => self.to_output(format!("+PONG\r\n")),
+                    Builtin::ECHO => array.remove(1),
+                    Builtin::PING => RESPData::Simple(Simple::String("PONG".to_string())),
                     Builtin::SET => {
                         let mut expiry_args: Option<(&RESPData, &RESPData)> = None;
 
@@ -112,12 +114,10 @@ impl RedisVM {
                             array[2].clone(),
                             expiry_args,
                         )?;
-                        self.output_ok();
+                        RESPData::ok()
                     }
-                    Builtin::GET => {
-                        self.output_data_opt(self.db.borrow_mut().get(&array[1]));
-                    }
-                    Builtin::RPUSH => self.output_data(&RESPData::from({
+                    Builtin::GET => self.db.borrow_mut().get(&array[1]).clone(),
+                    Builtin::RPUSH => RESPData::from({
                         if array.len() == 3 {
                             self.db.borrow_mut().push(&array[1], array[2].clone())
                         } else {
@@ -126,8 +126,8 @@ impl RedisVM {
                                 array[2..].iter().map(|v| v.clone()).collect(),
                             )
                         }
-                    })),
-                    Builtin::LPUSH => self.output_data(&RESPData::from({
+                    }),
+                    Builtin::LPUSH => RESPData::from({
                         if array.len() == 3 {
                             self.db.borrow_mut().lpush(&array[1], array[2].clone())
                         } else {
@@ -136,17 +136,13 @@ impl RedisVM {
                                 array[2..].iter().map(|v| v.clone()).collect(),
                             )
                         }
-                    })),
-                    Builtin::LRANGE => {
-                        self.output_data(
-                            &self
-                                .db
-                                .borrow()
-                                .list_range(&array[1], &array[2], &array[3])?,
-                        );
-                    }
-                    Builtin::LLEN => self.output_data(&self.db.borrow().list_len(&array[1])),
-                    Builtin::LPOP => self.output_data(&{
+                    }),
+                    Builtin::LRANGE => self
+                        .db
+                        .borrow()
+                        .list_range(&array[1], &array[2], &array[3])?,
+                    Builtin::LLEN => self.db.borrow().list_len(&array[1]),
+                    Builtin::LPOP => {
                         if array.len() == 2 {
                             self.db.borrow_mut().list_pop(&array[1])
                         } else {
@@ -155,28 +151,20 @@ impl RedisVM {
                                 .list_pop_many(&array[1], array[2].try_bulk_string_to_int()? as u64)
                         }
                     }),
+                    // Builtin::LRANGE => Some(
+                    //     self.db
+                    //         .borrow()
+                    //         .list_range(&array[1], &array[2], &array[3])?,
+                    // ),
                 },
-                None => {}
+                None => Err(anyhow!("Expected command"))?,
             },
             _ => todo!(),
-        }
-
-        Ok(())
+        })
     }
 
     fn to_output(&self, s: String) {
         self.output.borrow_mut().push(s);
-    }
-
-    fn output_ok(&self) {
-        self.to_output(Simple::ok().serialize());
-    }
-
-    fn output_data_opt(&self, data: Option<&RESPData>) {
-        match data {
-            Some(d) => self.output_data(d),
-            None => self.output_data(&NULL_STRING),
-        }
     }
 
     fn output_data(&self, data: &RESPData) {

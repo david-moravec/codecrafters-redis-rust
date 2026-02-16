@@ -131,17 +131,17 @@ impl RedisDB {
         result
     }
 
-    pub fn get(&mut self, key: &RESPData) -> Option<&RESPData> {
+    pub fn get(&mut self, key: &RESPData) -> &RESPData {
         if let Some(expiry) = self.expiry.get(key) {
             if expiry.expired() {
                 self.db.remove(key);
                 self.expiry.remove(key);
 
-                return None;
+                return &NULL_STRING;
             }
         }
 
-        self.db.get(key)
+        self.db.get(key).unwrap_or(&NULL_STRING)
     }
 
     pub fn get_list(&self, key: &RESPData) -> Option<&Vec<RESPData>> {
@@ -245,17 +245,17 @@ mod tests {
         let mut db = RedisDB::new();
 
         db.insert(
-            NULL_STRING.clone(),
-            NULL_STRING.clone(),
+            RESPData::bulk_string("key"),
+            RESPData::bulk_string("ahoj"),
             Some((&RESPData::bulk_string("PX"), &RESPData::bulk_string("10"))),
         )
         .unwrap();
 
-        assert!(db.get(&NULL_STRING) == Some(&NULL_STRING));
+        assert!(db.get(&RESPData::bulk_string("key")) == &RESPData::bulk_string("ahoj"));
 
         sleep(Duration::from_millis(10));
 
-        assert!(db.get(&NULL_STRING) == None);
+        assert!(db.get(&RESPData::bulk_string("key")) == &NULL_STRING);
     }
 
     #[test]
