@@ -150,7 +150,7 @@ impl RedisVM {
                                 .borrow_mut()
                                 .list_pop_many(&array[1], array[2].try_bulk_string_to_int()? as u64)
                         }
-                    }),
+                    }
                     // Builtin::LRANGE => Some(
                     //     self.db
                     //         .borrow()

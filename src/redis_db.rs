@@ -3,6 +3,8 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     ops::Range,
+    sync::{Mutex, mpsc},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -71,16 +73,18 @@ type ListDb = HashMap<RESPData, Vec<RESPData>>;
 
 pub struct RedisDB {
     db: Db,
-    list_db: ListDb,
+    list_db: Mutex<ListDb>,
     expiry: HashMap<RESPData, Expiry>,
+    waiters: Mutex<HashMap<RESPData, Vec<mpsc::Sender<RESPData>>>>,
 }
 
 impl RedisDB {
     pub fn new() -> Self {
         Self {
             db: Db::new(),
-            list_db: ListDb::new(),
+            list_db: Mutex::new(ListDb::new()),
             expiry: HashMap::new(),
+            waiters: Mutex::new(HashMap::new()),
         }
     }
 
@@ -98,17 +102,31 @@ impl RedisDB {
     }
 
     pub fn push(&mut self, key: &RESPData, value: RESPData) -> u64 {
-        let list = self.get_list_default_mut(key);
-        list.push(value);
+        if self
+            .with_waiters_mut(key, |vec_tx| vec_tx.remove(0).send(value.clone()))
+            .is_some()
+        {
+            return self.with_list(key, |l| l.len() as u64).unwrap_or(0);
+        }
 
-        list.len() as u64
+        self.with_list_mut_create_default(key, |list| {
+            list.push(value);
+            list.len() as u64
+        })
     }
 
     pub fn lpush(&mut self, key: &RESPData, value: RESPData) -> u64 {
-        let list = self.get_list_default_mut(key);
-        list.insert(0, value);
+        if self
+            .with_waiters_mut(key, |vec_tx| vec_tx.remove(0).send(value.clone()))
+            .is_some()
+        {
+            return self.with_list(key, |l| l.len() as u64).unwrap_or(0);
+        }
 
-        list.len() as u64
+        self.with_list_mut_create_default(key, |list| {
+            list.insert(0, value);
+            list.len() as u64
+        })
     }
 
     pub fn push_many(&mut self, key: &RESPData, values: Vec<RESPData>) -> u64 {
@@ -144,24 +162,73 @@ impl RedisDB {
         self.db.get(key).unwrap_or(&NULL_STRING)
     }
 
-    pub fn get_list(&self, key: &RESPData) -> Option<&Vec<RESPData>> {
-        self.list_db.get(key)
+    pub fn with_list<F, R>(&self, key: &RESPData, f: F) -> Option<R>
+    where
+        F: FnOnce(&Vec<RESPData>) -> R,
+    {
+        self.list_db.lock().expect("Lock failed").get(key).map(f)
     }
 
-    pub fn get_list_mut(&mut self, key: &RESPData) -> Option<&mut Vec<RESPData>> {
-        self.list_db.get_mut(key)
+    pub fn with_list_mut<F, R>(&mut self, key: &RESPData, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut Vec<RESPData>) -> R,
+    {
+        self.list_db
+            .lock()
+            .expect("Lock failed")
+            .get_mut(key)
+            .map(f)
+    }
+
+    pub fn with_list_mut_create_default<F, R>(&mut self, key: &RESPData, f: F) -> R
+    where
+        F: FnOnce(&mut Vec<RESPData>) -> R,
+    {
+        let mut locked_db = self.list_db.lock().expect("Lock failed");
+
+        if !locked_db.contains_key(key) {
+            locked_db.insert(key.clone(), vec![]);
+        }
+
+        locked_db.get_mut(key).map(f).unwrap()
+    }
+
+    fn with_waiters_mut_create_default<F, R>(&mut self, key: &RESPData, f: F) -> R
+    where
+        F: FnOnce(&mut Vec<mpsc::Sender<RESPData>>) -> R,
+    {
+        let mut locked_db = self.waiters.lock().expect("Lock failed");
+
+        if !locked_db.contains_key(key) {
+            locked_db.insert(key.clone(), vec![]);
+        }
+
+        locked_db.get_mut(key).map(f).unwrap()
+    }
+
+    fn with_waiters_mut<F, R>(&mut self, key: &RESPData, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut Vec<mpsc::Sender<RESPData>>) -> R,
+    {
+        self.waiters
+            .lock()
+            .expect("Lock failed")
+            .get_mut(key)
+            .map(f)
     }
 
     pub fn list_len(&self, key: &RESPData) -> RESPData {
-        match self.get_list(key) {
-            Some(l) => RESPData::from(l.len() as u64),
+        match self.with_list(key, |l| l.len()) {
+            Some(len) => RESPData::from(len as u64),
             None => RESPData::from(0),
         }
     }
 
     pub fn list_pop(&mut self, key: &RESPData) -> RESPData {
-        match self.get_list_mut(key) {
-            Some(l) => l.remove(0),
+        let removed = self.with_list_mut(key, |list| list.remove(0));
+
+        match removed {
+            Some(e) => e,
             None => NULL_STRING.clone(),
         }
     }
@@ -176,28 +243,19 @@ impl RedisDB {
         RESPData::from_iter(result.iter())
     }
 
-    fn get_list_default_mut(&mut self, key: &RESPData) -> &mut Vec<RESPData> {
-        if self.list_db.contains_key(&key) {
-            self.list_db.get_mut(key).unwrap()
-        } else {
-            self.list_db.insert(key.clone(), vec![]);
-            self.list_db.get_mut(key).unwrap()
-        }
-    }
-
     pub fn list_range(
         &self,
         key: &RESPData,
         start: &RESPData,
         stop: &RESPData,
     ) -> Result<RESPData> {
-        if let Some(list) = self.get_list(key) {
+        if let Some(list_len) = self.with_list(key, |l| l.len()) {
             let start = start.try_bulk_string_to_int()?;
             let stop = stop.try_bulk_string_to_int()?;
 
             let start = {
                 if start < 0 {
-                    let mut a = list.len() as i128 + start;
+                    let mut a = list_len as i128 + start;
                     if a < 0 {
                         a = 0;
                     }
@@ -209,7 +267,7 @@ impl RedisDB {
 
             let mut stop = {
                 if stop < 0 {
-                    let mut a = list.len() as i128 + stop;
+                    let mut a = list_len as i128 + stop;
                     if a < 0 {
                         a = 0;
                     }
@@ -219,13 +277,17 @@ impl RedisDB {
                 }
             };
 
-            if start >= list.len() || start > stop {
+            if start >= list_len || start > stop {
                 return Ok(RESPData::from_iter([].iter()));
-            } else if stop >= list.len() {
-                stop = list.len() - 1;
+            } else if stop >= list_len {
+                stop = list_len - 1;
             }
 
-            Ok(RESPData::from_iter(&list[start..=stop]))
+            Ok(RESPData::from_iter(
+                self.with_list(key, |l| l[start..=stop].to_vec())
+                    .unwrap()
+                    .iter(),
+            ))
         } else {
             Ok(RESPData::from_iter([].iter()))
         }
