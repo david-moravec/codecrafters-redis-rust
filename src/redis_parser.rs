@@ -333,6 +333,12 @@ impl RESPData {
         )))
     }
 
+    pub fn bulk_error(s: String) -> Self {
+        Self::Aggregate(Aggregate::BulkError(
+            s.as_bytes().iter().map(|b| *b).collect(),
+        ))
+    }
+
     pub fn try_bulk_string_to_int(&self) -> Result<i128> {
         if let RESPData::Aggregate(Aggregate::BulkString(Some(b))) = self {
             Ok(str::from_utf8(b)?.parse::<i128>()?)

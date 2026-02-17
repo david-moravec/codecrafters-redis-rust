@@ -1,18 +1,49 @@
 #![allow(unused_imports)]
 use std::io::{BufReader, Write, prelude::*};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 mod redis_db;
 mod redis_parser;
 mod redis_vm;
 
+use redis_parser::Parser;
+
 use crate::redis_vm::RedisVM;
 
-fn handle_connection(mut stream: TcpStream) {
+struct Server {
+    vm: Arc<Mutex<RedisVM>>,
+}
+
+impl Server {
+    fn new() -> Self {
+        Self {
+            vm: Arc::new(Mutex::new(RedisVM::new())),
+        }
+    }
+
+    fn serve(&self, addr: &str) {
+        let listener = TcpListener::bind(addr).unwrap();
+
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut _stream) => {
+                    let vm = Arc::clone(&self.vm);
+                    thread::spawn(|| handle_connection(_stream, vm));
+                }
+                Err(e) => {
+                    println!("error: {}", e);
+                }
+            }
+        }
+    }
+}
+
+fn handle_connection(mut stream: TcpStream, redis_vm: Arc<Mutex<RedisVM>>) {
     println!("accepted new connection");
 
-    let mut redis_vm = RedisVM::new();
+    let mut parser = Parser::new();
 
     loop {
         let mut buf = BufReader::new(&mut stream);
@@ -25,11 +56,24 @@ fn handle_connection(mut stream: TcpStream) {
                 if s == 0 {
                     continue;
                 } else {
-                    match redis_vm.handle(&String::from_utf8_lossy(&buff[..s])) {
-                        Ok(_) => {
-                            redis_vm.flush_output(&mut stream).unwrap();
+                    let request_parsed = match parser.parse(&String::from_utf8_lossy(&buff[..s])) {
+                        Ok(requests) => requests[0].clone(),
+                        Err(err) => {
+                            eprintln!("Parsing failed: {:}", err);
+                            continue;
                         }
-                        Err(e) => eprintln!("{}", e),
+                    };
+
+                    let response = {
+                        let locked = redis_vm.lock().expect("locking failed");
+                        locked.handle(request_parsed)
+                    };
+
+                    match response {
+                        Ok(r) => {
+                            stream.write(r.serialize().as_bytes());
+                        }
+                        Err(err) => eprintln!("{}", err),
                     }
                 }
             }
@@ -42,21 +86,6 @@ fn handle_connection(mut stream: TcpStream) {
 }
 
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
-
-    // Uncomment the code below to pass the first stage
-    //
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut _stream) => {
-                thread::spawn(|| handle_connection(_stream));
-            }
-            Err(e) => {
-                println!("error: {}", e);
-            }
-        }
-    }
+    let server = Server::new();
+    server.serve("127.0.0.1:6379");
 }

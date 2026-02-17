@@ -48,48 +48,39 @@ impl Builtin {
 }
 
 pub struct RedisVM {
-    parser: Parser,
-    output: RefCell<Vec<String>>,
     db: RefCell<RedisDB>,
 }
 
 impl RedisVM {
     pub fn new() -> Self {
         RedisVM {
-            parser: Parser::new(),
-            output: RefCell::new(vec![]),
             db: RefCell::new(RedisDB::new()),
         }
     }
 
-    pub fn handle(&mut self, request_buff: &str) -> Result<()> {
-        for request_parsed in self.parser.parse(request_buff)?.into_iter() {
-            self.handle_request(request_parsed)?;
-        }
-
-        Ok(())
+    pub fn handle(&self, request: RESPData) -> Result<RESPData> {
+        self.handle_request(request)
     }
 
-    fn handle_request(&self, request: RESPData) -> Result<()> {
+    fn handle_request(&self, request: RESPData) -> Result<RESPData> {
         match request {
-            RESPData::Aggregate(Aggregate::Array(Some(array))) => {
-                Ok(self.output_data(&self.handle_request_array(array)?))
-            }
+            RESPData::Aggregate(Aggregate::Array(Some(array))) => self.handle_request_array(array),
             RESPData::Simple(s) => self.handle_request_simple(s),
             _ => todo!(),
         }
     }
 
-    fn handle_request_simple(&self, request: Simple) -> Result<()> {
+    fn handle_request_simple(&self, request: Simple) -> Result<RESPData> {
         match request {
-            Simple::String(command) => match Builtin::new(&command)? {
-                Builtin::PING => self.to_output(format!("+PONG\r\n")),
-                _ => Err(anyhow!("{} Is not simple command", command))?,
+            Simple::String(ref command) => match Builtin::new(command)? {
+                Builtin::PING => Ok(RESPData::Simple(Simple::String("PONG".to_string()))),
+                _ => Ok(RESPData::bulk_error(format!(
+                    "Uknown simple command {:?}",
+                    request
+                ))),
             },
-            _ => todo!(),
+            _ => Err(anyhow!("Unknown command {:?}", request)),
         }
-
-        Ok(())
     }
 
     fn handle_request_array(&self, mut array: Vec<RESPData>) -> Result<RESPData> {
@@ -162,63 +153,32 @@ impl RedisVM {
             _ => todo!(),
         })
     }
-
-    fn to_output(&self, s: String) {
-        self.output.borrow_mut().push(s);
-    }
-
-    fn output_data(&self, data: &RESPData) {
-        self.to_output(data.serialize());
-    }
-
-    pub fn flush_output<S: Write>(&self, stream: &mut S) -> Result<usize> {
-        let mut written = 0;
-
-        for s in self.output.borrow().iter() {
-            written += stream.write(s.as_bytes())?
-        }
-
-        self.output.borrow_mut().clear();
-
-        Ok(written)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn redis_vm_handle(request: &str) -> RedisVM {
-        let mut vm = RedisVM::new();
-        vm.handle(request).unwrap();
-        vm
-    }
-
     fn test_request_response(request: &str, response: &str) {
-        let vm = redis_vm_handle(request);
-        if vm.output.borrow()[0] != response {
-            eprintln!(
-                "Expected: {}\nGot     : {}",
-                response,
-                vm.output.borrow()[0]
-            );
+        let output = RedisVM::new()
+            .handle(Parser::new().parse(request).unwrap().pop().unwrap())
+            .unwrap();
+
+        if output.serialize() != response {
+            eprintln!("Expected: {}\nGot     : {}", response, output.serialize());
             assert!(false);
         }
     }
 
     fn test_request_response_vm(request: &str, response: &str, vm: &mut RedisVM) {
-        vm.handle(request).unwrap();
+        let output = vm
+            .handle(Parser::new().parse(request).unwrap().pop().unwrap())
+            .unwrap();
 
-        if vm.output.borrow()[0] != response {
-            eprintln!(
-                "Expected: {}\nGot     : {}",
-                response,
-                vm.output.borrow()[0]
-            );
+        if output.serialize() != response {
+            eprintln!("Expected: {}\nGot     : {}", response, output.serialize());
             assert!(false);
         }
-
-        vm.output.borrow_mut().clear();
     }
 
     #[test]
