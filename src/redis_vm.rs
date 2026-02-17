@@ -72,7 +72,7 @@ impl RedisVM {
 
     fn handle_request(&self, request: RESPData) -> Result<()> {
         match request {
-            RESPData::Aggregate(Aggregate::Array(array)) => {
+            RESPData::Aggregate(Aggregate::Array(Some(array))) => {
                 Ok(self.output_data(&self.handle_request_array(array)?))
             }
             RESPData::Simple(s) => self.handle_request_simple(s),

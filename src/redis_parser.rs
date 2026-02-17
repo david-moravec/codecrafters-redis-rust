@@ -241,7 +241,7 @@ impl<'a> FromIterator<&'a RESPData> for RESPData {
             .map(|c| c.clone())
             .collect::<Vec<RESPData>>();
 
-        return Self::Aggregate(Aggregate::Array(vec));
+        return Self::Aggregate(Aggregate::Array(Some(vec)));
     }
 }
 
@@ -250,7 +250,7 @@ pub enum Aggregate {
     BulkString(Option<Vec<u8>>),
     BulkError(Vec<u8>),
     VerbatimString(Encoding, Vec<u8>),
-    Array(Vec<RESPData>),
+    Array(Option<Vec<RESPData>>),
     Map(RESPMap),
     Attribute(RESPMap),
     Set(HashSet<RESPData>),
@@ -276,15 +276,18 @@ impl Aggregate {
                     format!("$-1\r\n")
                 }
             },
-            Self::Array(list) => {
-                let mut s = format!("*{}\r\n", list.len());
+            Self::Array(list) => match list {
+                Some(l) => {
+                    let mut s = format!("*{}\r\n", l.len());
 
-                for data in list {
-                    s.push_str(&data.serialize());
+                    for data in l {
+                        s.push_str(&data.serialize());
+                    }
+
+                    s
                 }
-
-                s
-            }
+                None => format!("*-1/r/n"),
+            },
             _ => todo!(),
         }
     }
@@ -300,7 +303,8 @@ impl Hash for Aggregate {
             Self::Set(_) => panic!("Cannot hash Set"),
             Self::BulkString(d) => d.hash(state),
             Self::BulkError(d) => d.hash(state),
-            Self::Array(d) | Self::Push(d) => d.hash(state),
+            Self::Array(d) => d.hash(state),
+            Self::Push(d) => d.hash(state),
             Self::VerbatimString(encoding, data) => {
                 encoding.hash(state);
                 data.hash(state);
@@ -339,6 +343,10 @@ impl RESPData {
 
     pub fn ok() -> Self {
         Self::Simple(Simple::ok())
+    }
+
+    pub fn null_array() -> Self {
+        Self::Aggregate(Aggregate::Array(None))
     }
 }
 
@@ -475,7 +483,7 @@ impl Parser {
                     data.push(self.next_resp_data()?)
                 }
 
-                Ok(Aggregate::Array(data))
+                Ok(Aggregate::Array(Some(data)))
             }
             '!' => {
                 let orig_pos = self.current;
@@ -630,7 +638,7 @@ mod tests {
 
         let parsed = Parser::new().parse(s).unwrap();
 
-        if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
+        if let RESPData::Aggregate(Aggregate::Array(Some(array))) = &parsed[0] {
             assert!(array[0] == RESPData::Simple(Simple::from(1)));
             assert!(array[1] == RESPData::Simple(Simple::from(2)));
             assert!(array[2] == RESPData::Simple(Simple::from(3)));
@@ -644,7 +652,7 @@ mod tests {
 
         let parsed = Parser::new().parse(s).unwrap();
 
-        if let RESPData::Aggregate(Aggregate::Array(array)) = &parsed[0] {
+        if let RESPData::Aggregate(Aggregate::Array(Some(array))) = &parsed[0] {
             assert!(matches!(array[0], RESPData::Aggregate(Aggregate::Array(_))));
         } else {
             assert!(false);
