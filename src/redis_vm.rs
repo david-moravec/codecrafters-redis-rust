@@ -48,21 +48,19 @@ impl Builtin {
 }
 
 pub struct RedisVM {
-    db: RefCell<RedisDB>,
+    db: RedisDB,
 }
 
 impl RedisVM {
     pub fn new() -> Self {
-        RedisVM {
-            db: RefCell::new(RedisDB::new()),
-        }
+        RedisVM { db: RedisDB::new() }
     }
 
-    pub fn handle(&self, request: RESPData) -> Result<RESPData> {
+    pub fn handle(&mut self, request: RESPData) -> Result<RESPData> {
         self.handle_request(request)
     }
 
-    fn handle_request(&self, request: RESPData) -> Result<RESPData> {
+    fn handle_request(&mut self, request: RESPData) -> Result<RESPData> {
         match request {
             RESPData::Aggregate(Aggregate::Array(Some(array))) => self.handle_request_array(array),
             RESPData::Simple(s) => self.handle_request_simple(s),
@@ -83,7 +81,7 @@ impl RedisVM {
         }
     }
 
-    fn handle_request_array(&self, mut array: Vec<RESPData>) -> Result<RESPData> {
+    fn handle_request_array(&mut self, mut array: Vec<RESPData>) -> Result<RESPData> {
         Ok(match array[0] {
             RESPData::Simple(Simple::String(ref command)) => match Builtin::new(command)? {
                 Builtin::PING => array.remove(1),
@@ -100,45 +98,40 @@ impl RedisVM {
                             expiry_args = Some((&array[3], &array[4]));
                         }
 
-                        self.db.borrow_mut().insert(
-                            array[1].clone(),
-                            array[2].clone(),
-                            expiry_args,
-                        )?;
+                        self.db
+                            .insert(array[1].clone(), array[2].clone(), expiry_args)?;
                         RESPData::ok()
                     }
-                    Builtin::GET => self.db.borrow_mut().get(&array[1]).clone(),
+                    Builtin::GET => self.db.get(&array[1]).clone(),
                     Builtin::RPUSH => RESPData::from({
+                        println!("pushing");
                         if array.len() == 3 {
-                            self.db.borrow_mut().push(&array[1], array[2].clone())
+                            self.db.push(&array[1], array[2].clone())
                         } else {
-                            self.db.borrow_mut().push_many(
+                            self.db.push_many(
                                 &array[1],
                                 array[2..].iter().map(|v| v.clone()).collect(),
                             )
                         }
                     }),
                     Builtin::LPUSH => RESPData::from({
+                        println!("pushing");
                         if array.len() == 3 {
-                            self.db.borrow_mut().lpush(&array[1], array[2].clone())
+                            self.db.lpush(&array[1], array[2].clone())
                         } else {
-                            self.db.borrow_mut().lpush_many(
+                            self.db.lpush_many(
                                 &array[1],
                                 array[2..].iter().map(|v| v.clone()).collect(),
                             )
                         }
                     }),
-                    Builtin::LRANGE => self
-                        .db
-                        .borrow()
-                        .list_range(&array[1], &array[2], &array[3])?,
-                    Builtin::LLEN => self.db.borrow().list_len(&array[1]),
+                    Builtin::LRANGE => self.db.list_range(&array[1], &array[2], &array[3])?,
+                    Builtin::LLEN => self.db.list_len(&array[1]),
                     Builtin::LPOP => {
                         if array.len() == 2 {
-                            self.db.borrow_mut().list_pop(&array[1])
+                            self.db.list_pop(&array[1])
                         } else {
                             self.db
-                                .borrow_mut()
                                 .list_pop_many(&array[1], array[2].try_bulk_string_to_int()? as u64)
                         }
                     }

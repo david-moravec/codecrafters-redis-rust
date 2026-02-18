@@ -28,9 +28,9 @@ impl Server {
 
         for stream in listener.incoming() {
             match stream {
-                Ok(mut _stream) => {
+                Ok(stream) => {
                     let vm = Arc::clone(&self.vm);
-                    thread::spawn(|| handle_connection(_stream, vm));
+                    thread::spawn(move || handle_connection(stream, vm));
                 }
                 Err(e) => {
                     println!("error: {}", e);
@@ -65,7 +65,7 @@ fn handle_connection(mut stream: TcpStream, redis_vm: Arc<Mutex<RedisVM>>) {
                     };
 
                     let response = {
-                        let locked = redis_vm.lock().expect("locking failed");
+                        let mut locked = redis_vm.lock().expect("locking failed");
                         locked.handle(request_parsed)
                     };
 
