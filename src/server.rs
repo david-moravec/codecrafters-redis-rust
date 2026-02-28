@@ -60,22 +60,22 @@ impl Handle {
     }
 }
 
-pub async fn run(listener: TcpListener) {
-    let server = Server::new();
-
-    tokio::spawn(async move {
-        if let Err(err) = server.run(listener).await {
-            eprintln!("Error: {:}", err);
-        }
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::*;
     use std::net::SocketAddr;
+
+    pub async fn run(listener: TcpListener) {
+        let server = Server::new();
+
+        tokio::spawn(async move {
+            if let Err(err) = server.run(listener).await {
+                eprintln!("Error: {:}", err);
+            }
+        });
+    }
 
     async fn start_server() -> SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
