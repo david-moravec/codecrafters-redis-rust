@@ -37,7 +37,7 @@ impl Encoding {
 pub(crate) enum Frame {
     Simple(String),
     Error(String),
-    Integer(i64),
+    Integer(u64),
     BulkString(Bytes),
     Array(Option<Vec<Frame>>),
     Null,
@@ -275,12 +275,12 @@ fn peek_u8(buf: &Cursor<&[u8]>) -> FrameResult<u8> {
     Ok(buf.chunk()[0])
 }
 
-fn get_decimal(buf: &mut Cursor<&[u8]>) -> FrameResult<i64> {
+fn get_decimal(buf: &mut Cursor<&[u8]>) -> FrameResult<u64> {
     let line = get_line(buf)?;
 
     use atoi::atoi;
 
-    atoi::<i64>(line).ok_or(FrameError::Other(anyhow!("invalid frame format")))
+    atoi::<u64>(line).ok_or(FrameError::Other(anyhow!("invalid frame format")))
 }
 
 fn get_double(buf: &mut Cursor<&[u8]>) -> FrameResult<f64> {

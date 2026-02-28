@@ -62,16 +62,16 @@ impl Parse {
         }
     }
 
-    fn next_integer(&mut self) -> Result<i64> {
+    pub(crate) fn next_integer(&mut self) -> Result<u64> {
         use atoi::atoi;
 
         match self.next()? {
             Frame::Integer(v) => Ok(v),
             Frame::Simple(s) => {
-                atoi::<i64>(s.as_bytes()).ok_or_else(|| anyhow!("protocol error; invalid number"))
+                atoi::<u64>(s.as_bytes()).ok_or_else(|| anyhow!("protocol error; invalid number"))
             }
             Frame::BulkString(data) => {
-                atoi::<i64>(&data).ok_or_else(|| anyhow!("protocol error; invalid number"))
+                atoi::<u64>(&data).ok_or_else(|| anyhow!("protocol error; invalid number"))
             }
             frame => Err(anyhow!(
                 "protocol error; expected simple string or bulk string, got {:?}",
