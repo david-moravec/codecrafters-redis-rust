@@ -15,7 +15,7 @@ impl Get {
         })
     }
     pub async fn apply(
-        &self,
+        self,
         db: &crate::db::Db,
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {

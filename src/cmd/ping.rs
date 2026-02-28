@@ -8,7 +8,7 @@ impl Ping {
         Ok(Ping {})
     }
     pub async fn apply(
-        &self,
+        self,
         db: &crate::db::Db,
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {
