@@ -77,4 +77,10 @@ impl Db {
 
         state.db.get(key).map(|b| b.clone())
     }
+
+    pub fn set(&self, key: String, value: Bytes) {
+        let mut state = self.shared.state.lock().unwrap();
+
+        state.db.insert(key, value);
+    }
 }

@@ -51,7 +51,7 @@ impl Parse {
         }
     }
 
-    fn next_bytes(&mut self) -> Result<Bytes> {
+    pub(crate) fn next_bytes(&mut self) -> Result<Bytes> {
         match self.next()? {
             Frame::Simple(s) => Ok(Bytes::from(s.into_bytes())),
             Frame::BulkString(data) => Ok(data),

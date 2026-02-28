@@ -1,6 +1,7 @@
 mod echo;
 mod get;
 mod ping;
+mod set;
 
 use crate::connection::Connection;
 use crate::db::Db;
@@ -11,11 +12,13 @@ use anyhow::{Result, anyhow};
 use echo::Echo;
 use get::Get;
 use ping::Ping;
+use set::Set;
 
 pub enum Command {
     Ping(Ping),
     Get(Get),
     Echo(Echo),
+    Set(Set),
 }
 
 impl Command {
@@ -28,6 +31,7 @@ impl Command {
             "ping" => Command::Ping(Ping::parse(&mut parse)?),
             "get" => Command::Get(Get::parse(&mut parse)?),
             "echo" => Command::Echo(Echo::parse(&mut parse)?),
+            "set" => Command::Set(Set::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -41,6 +45,7 @@ impl Command {
             Self::Ping(cmd) => cmd.apply(db, dst).await,
             Self::Get(cmd) => cmd.apply(db, dst).await,
             Self::Echo(cmd) => cmd.apply(db, dst).await,
+            Self::Set(cmd) => cmd.apply(db, dst).await,
         }
     }
 }
