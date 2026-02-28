@@ -19,10 +19,9 @@ impl Get {
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {
         let frame = if let Some(bytes) = db.get(&self.key) {
-            let mut cursor = Cursor::new(&bytes[..]);
-            Frame::parse(&mut cursor)?
+            Frame::BulkString(bytes)
         } else {
-            Frame::Null
+            Frame::NullBulkString
         };
 
         dst.write_frame(&frame).await?;

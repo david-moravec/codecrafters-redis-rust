@@ -98,4 +98,56 @@ mod tests {
 
         assert_eq!(b"+PONG\r\n", &response);
     }
+
+    #[tokio::test]
+    async fn test_set() {
+        let addr = start_server().await;
+
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"*3\r\n+SET\r\n$3\r\nfoo\r\n$4\r\nbars\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 5];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"+OK\r\n", &response);
+    }
+
+    #[tokio::test]
+    async fn test_get_set() {
+        let addr = start_server().await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+
+        stream
+            .write_all(b"*2\r\n+GET\r\n$5\r\nhello\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 5];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"$-1\r\n", &response);
+
+        stream
+            .write_all(b"*3\r\n+SET\r\n$5\r\nhello\r\n$5\r\nworld\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 5];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"+OK\r\n", &response);
+
+        stream
+            .write_all(b"*2\r\n+GET\r\n$5\r\nhello\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 11];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"$5\r\nworld\r\n", &response);
+    }
 }
