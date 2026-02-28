@@ -93,7 +93,11 @@ impl Connection {
                 self.stream.write_all(val.as_bytes()).await?;
             }
             Frame::Integer(val) => self.write_i64(*val).await?,
-            Frame::BulkString(bytes) => self.stream.write_all(&bytes).await?,
+            Frame::BulkString(bytes) => {
+                self.write_u64(bytes.len() as u64).await?;
+                self.stream.write_all(b"\r\n").await?;
+                self.stream.write_all(&bytes).await?;
+            }
             Frame::Null => self.stream.write_u8(b'_').await?,
             Frame::Bool(b) => {
                 if *b {
