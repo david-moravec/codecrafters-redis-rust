@@ -98,6 +98,7 @@ impl Connection {
                 self.stream.write_all(b"\r\n").await?;
                 self.stream.write_all(&bytes).await?;
             }
+            Frame::NullBulkString => self.stream.write_all(b"-1").await?,
             Frame::Null => self.stream.write_u8(b'_').await?,
             Frame::Bool(b) => {
                 if *b {

@@ -40,6 +40,7 @@ pub(crate) enum Frame {
     Integer(u64),
     BulkString(Bytes),
     Array(Option<Vec<Frame>>),
+    NullBulkString,
     Null,
     Bool(bool),
     Double(f64),
@@ -141,7 +142,14 @@ impl Frame {
                 let dec = get_decimal(buf)?;
                 Ok(Self::Integer(dec))
             }
-            b'$' => Ok(Self::BulkString(get_bytes(buf)?)),
+            b'$' => {
+                let bytes = get_bytes(buf)?;
+                if &bytes.chunk()[..2] == b"-1" {
+                    Ok(Self::NullBulkString)
+                } else {
+                    Ok(Self::BulkString(bytes))
+                }
+            }
             b'*' => {
                 if peek_u8(buf)? == b'-' {
                     skip(buf, 4)?;
@@ -202,6 +210,7 @@ impl Frame {
             Self::BulkString(_) => b'$',
             Self::Array(_) => b'*',
             Self::Null => b'_',
+            Self::NullBulkString => b'$',
             Self::Bool(_) => b'#',
             Self::Double(_) => b',',
             Self::BigNumber(_) => b'(',
