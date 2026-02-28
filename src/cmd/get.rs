@@ -1,8 +1,7 @@
 use std::io::Cursor;
 
-use crate::parser::Parse;
-
 use crate::frame::Frame;
+use crate::parser::Parse;
 
 pub struct Get {
     key: String,
