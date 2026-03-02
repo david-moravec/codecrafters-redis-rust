@@ -1,5 +1,6 @@
 mod echo;
 mod get;
+mod llen;
 mod lpush;
 mod lrange;
 mod ping;
@@ -14,6 +15,7 @@ use crate::parser::Parse;
 use anyhow::{Result, anyhow};
 use echo::Echo;
 use get::Get;
+use llen::LLen;
 use lpush::LPush;
 use lrange::LRange;
 use ping::Ping;
@@ -28,6 +30,7 @@ pub enum Command {
     RPush(RPush),
     LRange(LRange),
     LPush(LPush),
+    LLen(LLen),
 }
 
 impl Command {
@@ -44,6 +47,7 @@ impl Command {
             "rpush" => Command::RPush(RPush::parse(&mut parse)?),
             "lrange" => Command::LRange(LRange::parse(&mut parse)?),
             "lpush" => Command::LPush(LPush::parse(&mut parse)?),
+            "llen" => Command::LLen(LLen::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -61,6 +65,7 @@ impl Command {
             Self::RPush(cmd) => cmd.apply(db, dst).await,
             Self::LRange(cmd) => cmd.apply(db, dst).await,
             Self::LPush(cmd) => cmd.apply(db, dst).await,
+            Self::LLen(cmd) => cmd.apply(db, dst).await,
         }
     }
 }
