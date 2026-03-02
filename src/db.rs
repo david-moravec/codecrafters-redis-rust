@@ -104,4 +104,20 @@ impl Db {
 
         list.len()
     }
+
+    pub fn lrange(&self, key: &str, start: usize, stop: usize) -> Vec<Bytes> {
+        let state = self.shared.state.lock().unwrap();
+        let list = match state.list_db.get(key) {
+            Some(l) => l,
+            None => return vec![],
+        };
+        let list_len = list.len();
+
+        if start >= list_len || start > stop {
+            return vec![];
+        }
+        let true_stop = { if stop >= list_len { list_len - 1 } else { stop } };
+
+        list[start..=true_stop].iter().cloned().collect()
+    }
 }
