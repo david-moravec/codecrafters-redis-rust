@@ -93,4 +93,15 @@ impl Db {
 
         state.db.insert(key, value);
     }
+
+    pub fn rpush(&self, key: String, values: Vec<Bytes>) -> usize {
+        let mut state = self.shared.state.lock().unwrap();
+        let list = state.list_db.entry(key).or_insert_with(|| vec![]);
+
+        for value in values {
+            list.push(value);
+        }
+
+        list.len()
+    }
 }
