@@ -106,6 +106,17 @@ impl Db {
         list.len()
     }
 
+    pub fn lpush(&self, key: String, values: Vec<Bytes>) -> usize {
+        let mut state = self.shared.state.lock().unwrap();
+        let list = state.list_db.entry(key).or_insert_with(|| vec![]);
+
+        for value in values {
+            list.insert(0, value);
+        }
+
+        list.len()
+    }
+
     pub fn lrange(&self, key: &str, start: i64, stop: i64) -> Vec<Bytes> {
         let state = self.shared.state.lock().unwrap();
         let list = match state.list_db.get(key) {
