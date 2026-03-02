@@ -78,8 +78,18 @@ impl Db {
         state.db.get(key).map(|b| b.clone())
     }
 
-    pub fn set(&self, key: String, value: Bytes) {
+    pub fn set(&self, key: String, value: Bytes, expire: Option<Duration>) {
         let mut state = self.shared.state.lock().unwrap();
+
+        if let Some(expire) = expire {
+            state.expiry.insert(
+                key.clone(),
+                Expiry {
+                    now: Instant::now(),
+                    duration: expire,
+                },
+            );
+        }
 
         state.db.insert(key, value);
     }
