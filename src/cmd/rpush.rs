@@ -29,8 +29,4 @@ impl RPush {
         dst.write_frame(&Frame::Integer(len as u64)).await?;
         Ok(())
     }
-
-    pub fn get_name(&self) -> &str {
-        "rpush"
-    }
 }

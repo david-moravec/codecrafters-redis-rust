@@ -1,5 +1,3 @@
-use std::io::Cursor;
-
 use crate::frame::Frame;
 use crate::parser::Parse;
 
@@ -26,9 +24,5 @@ impl Get {
 
         dst.write_frame(&frame).await?;
         Ok(())
-    }
-
-    pub fn get_name(&self) -> &str {
-        "get"
     }
 }

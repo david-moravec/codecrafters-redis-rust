@@ -15,15 +15,11 @@ impl Echo {
     }
     pub async fn apply(
         self,
-        db: &crate::db::Db,
+        _: &crate::db::Db,
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {
         let frame = Frame::BulkString(Bytes::copy_from_slice(self.line.as_bytes()));
         dst.write_frame(&frame).await?;
         Ok(())
-    }
-
-    pub fn get_name(&self) -> &str {
-        "echo"
     }
 }

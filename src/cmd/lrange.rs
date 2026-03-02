@@ -32,8 +32,4 @@ impl LRange {
         dst.write_frame(&frame).await?;
         Ok(())
     }
-
-    pub fn get_name(&self) -> &str {
-        "lrange"
-    }
 }

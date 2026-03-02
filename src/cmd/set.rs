@@ -47,8 +47,4 @@ impl Set {
         dst.write_frame(&Frame::Simple("OK".to_string())).await?;
         Ok(())
     }
-
-    pub fn get_name(&self) -> &str {
-        "set"
-    }
 }
