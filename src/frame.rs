@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use thiserror::Error;
 
-use bytes::{Buf, Bytes};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 type FrameResult<T> = Result<T, FrameError>;
 
@@ -222,6 +222,106 @@ impl Frame {
             Self::Push(_) => b'>',
         }
     }
+
+    fn value_to_bytes(&self) -> Bytes {
+        let mut bytes_mut = BytesMut::new();
+        bytes_mut.put_u8(self.frame_symbol());
+
+        match self {
+            Self::Simple(val) => {
+                bytes_mut.put_slice(val.as_bytes());
+            }
+            Self::Error(val) => {
+                bytes_mut.put_slice(val.as_bytes());
+            }
+            Self::Integer(val) => bytes_mut.put_u64(*val),
+            Self::BulkString(bytes) => {
+                bytes_mut.put_u64(bytes.len() as u64);
+                bytes_mut.put_slice(b"\r\n");
+                bytes_mut.put_slice(&bytes);
+            }
+            Self::NullBulkString => bytes_mut.put_slice(b"-1"),
+            Self::Null => bytes_mut.put_u8(b'_'),
+            Self::Bool(b) => {
+                if *b {
+                    bytes_mut.put_u8(b't')
+                } else {
+                    bytes_mut.put_u8(b'f')
+                }
+            }
+            Self::Double(d) => bytes_mut.put_f64(*d),
+            Self::BigNumber(bytes) => bytes_mut.put_slice(&bytes),
+            Self::BulkError(bytes) => bytes_mut.put_slice(&bytes),
+            Self::VerbatimString(encoding, bytes) => {
+                bytes_mut.put_slice(encoding.to_bytes());
+                bytes_mut.put_u8(b':');
+                bytes_mut.put_slice(&bytes);
+            }
+            _ => unreachable!(),
+        }
+
+        bytes_mut.put_slice(b"\r\n");
+
+        bytes_mut.freeze()
+    }
+
+    pub(crate) fn to_bytes(&self) -> Bytes {
+        let mut bytes_mut = BytesMut::new();
+
+        match self {
+            Self::Array(array_opt) => match array_opt {
+                Some(array) => {
+                    bytes_mut.put_u8(self.frame_symbol());
+                    bytes_mut.put_slice(&array_to_bytes(array));
+                }
+                None => {
+                    bytes_mut.put_u8(self.frame_symbol());
+                    bytes_mut.put_slice(b"-1\r\n");
+                }
+            },
+            Self::Map(map) | Self::Attribute(map) => {
+                bytes_mut.put_u8(self.frame_symbol());
+                bytes_mut.put_slice(&map_to_bytes(map));
+            }
+            Self::Push(array) | Self::Set(array) => {
+                bytes_mut.put_u8(self.frame_symbol());
+                bytes_mut.put_slice(&array_to_bytes(array));
+            }
+            _ => bytes_mut.put_slice(&self.value_to_bytes()),
+        };
+
+        bytes_mut.freeze()
+    }
+}
+
+fn array_to_bytes(array: &[Frame]) -> Bytes {
+    let mut bytes_mut = BytesMut::new();
+    let len = array.len();
+    bytes_mut.put_u64(len as u64);
+    bytes_mut.put_slice(b"\r\n");
+
+    for frame in array.into_iter() {
+        bytes_mut.put_slice(&frame.to_bytes());
+    }
+
+    bytes_mut.freeze()
+}
+
+fn map_to_bytes(map: &HashMap<String, Frame>) -> Bytes {
+    let mut bytes_mut = BytesMut::new();
+    let len = map.len();
+    bytes_mut.put_u64(len as u64);
+    bytes_mut.put_slice(b"\r\n");
+
+    for (key, frame) in map.iter() {
+        bytes_mut.put_u64(key.len() as u64);
+        bytes_mut.put_slice(b"\r\n");
+        bytes_mut.put_slice(key.as_bytes());
+        bytes_mut.put_slice(b"\r\n");
+        bytes_mut.put_slice(&frame.to_bytes());
+    }
+
+    bytes_mut.freeze()
 }
 
 fn get_map(buf: &mut Cursor<&[u8]>) -> FrameResult<HashMap<String, Frame>> {
