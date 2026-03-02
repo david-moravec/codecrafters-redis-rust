@@ -58,7 +58,7 @@ pub(crate) enum FrameError {
     #[error("Incomplete frame data")]
     Incomplete,
     #[error("During framing error encountered: {0}")]
-    Other(anyhow::Error),
+    Other(#[from] anyhow::Error),
 }
 
 impl Frame {
@@ -79,7 +79,7 @@ impl Frame {
             b'$' | b'!' => {
                 let len: usize = get_decimal(buf)?
                     .try_into()
-                    .map_err(|_| FrameError::Other(anyhow!("Conversion to usize failed")))?;
+                    .map_err(|_| anyhow!("Conversion to usize failed"))?;
 
                 skip(buf, len + 2)
             }
@@ -113,12 +113,12 @@ impl Frame {
             b'=' => {
                 let len: usize = get_decimal(buf)?
                     .try_into()
-                    .map_err(|_| FrameError::Other(anyhow!("Conversion to usize failed")))?;
+                    .map_err(|_| anyhow!("Conversion to usize failed"))?;
                 get_encoding(buf)?;
 
                 skip(buf, len + 2)
             }
-            _ => Err(FrameError::Other(anyhow!("wrong format"))),
+            _ => Err(anyhow!("wrong format").into()),
         }
     }
 
@@ -198,7 +198,7 @@ impl Frame {
                 let array = get_array(buf)?;
                 Ok(Self::Push(array))
             }
-            _ => Err(FrameError::Other(anyhow!("wrong format"))),
+            _ => Err(anyhow!("wrong format").into()),
         }
     }
 
@@ -253,7 +253,7 @@ fn get_array(buf: &mut Cursor<&[u8]>) -> FrameResult<Vec<Frame>> {
 fn get_bytes(buf: &mut Cursor<&[u8]>) -> FrameResult<Bytes> {
     let len: usize = get_decimal(buf)?
         .try_into()
-        .map_err(|_| FrameError::Other(anyhow!("Converions to usize failed")))?;
+        .map_err(|_| anyhow!("Converions to usize failed"))?;
     let n = len + 2;
 
     if buf.remaining() < n {
@@ -289,7 +289,7 @@ fn get_decimal(buf: &mut Cursor<&[u8]>) -> FrameResult<u64> {
 
     use atoi::atoi;
 
-    atoi::<u64>(line).ok_or(FrameError::Other(anyhow!("invalid frame format")))
+    atoi::<u64>(line).ok_or(anyhow!("invalid frame format").into())
 }
 
 fn get_double(buf: &mut Cursor<&[u8]>) -> FrameResult<f64> {
@@ -322,17 +322,13 @@ fn get_bool(buf: &mut Cursor<&[u8]>) -> FrameResult<bool> {
     let line = get_line(buf)?;
 
     if line.len() != 1 {
-        return Err(FrameError::Other(anyhow!(
-            "invalid frame format; expected only one byte"
-        )));
+        return Err(anyhow!("invalid frame format; expected only one byte").into());
     }
 
     match line[0] {
         b't' => Ok(true),
         b'f' => Ok(false),
-        _ => Err(FrameError::Other(anyhow!(
-            "invalid frame format; expected 't' or 'f'"
-        ))),
+        _ => Err(anyhow!("invalid frame format; expected 't' or 'f'").into()),
     }
 }
 
