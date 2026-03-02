@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use std::{
+    cmp::max,
     collections::HashMap,
     sync::{Mutex, mpsc},
     time::{Duration, Instant},
@@ -105,7 +106,7 @@ impl Db {
         list.len()
     }
 
-    pub fn lrange(&self, key: &str, start: usize, stop: usize) -> Vec<Bytes> {
+    pub fn lrange(&self, key: &str, start: i64, stop: i64) -> Vec<Bytes> {
         let state = self.shared.state.lock().unwrap();
         let list = match state.list_db.get(key) {
             Some(l) => l,
@@ -113,11 +114,33 @@ impl Db {
         };
         let list_len = list.len();
 
-        if start >= list_len || start > stop {
+        let true_stop = {
+            if stop < 0 {
+                max(list_len as i64 - stop.abs(), 0)
+            } else if stop >= list_len as i64 {
+                (list_len - 1) as i64
+            } else {
+                stop
+            }
+        };
+
+        let true_start = {
+            if start < 0 {
+                max(list_len as i64 - start.abs(), 0)
+            } else if start >= list_len as i64 {
+                return vec![];
+            } else {
+                start
+            }
+        };
+
+        if true_start > true_stop {
             return vec![];
         }
-        let true_stop = { if stop >= list_len { list_len - 1 } else { stop } };
 
-        list[start..=true_stop].iter().cloned().collect()
+        list[true_start as usize..=true_stop as usize]
+            .iter()
+            .cloned()
+            .collect()
     }
 }

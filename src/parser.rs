@@ -92,4 +92,22 @@ impl Parse {
             .into()),
         }
     }
+
+    pub(crate) fn next_i64(&mut self) -> ParseResult<i64> {
+        use atoi::atoi;
+
+        match self.next()? {
+            Frame::Integer(v) => v.try_into().map_err(|_| anyhow!("Could not parse").into()),
+            Frame::Simple(s) => atoi::<i64>(s.as_bytes())
+                .ok_or_else(|| anyhow!("protocol error; invalid number").into()),
+            Frame::BulkString(data) => {
+                atoi::<i64>(&data).ok_or_else(|| anyhow!("protocol error; invalid number").into())
+            }
+            frame => Err(anyhow!(
+                "protocol error; expected simple string or bulk string, got {:?}",
+                frame
+            )
+            .into()),
+        }
+    }
 }
