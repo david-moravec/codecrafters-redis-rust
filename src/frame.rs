@@ -143,10 +143,16 @@ impl Frame {
                 Ok(Self::Integer(dec))
             }
             b'$' => {
-                let bytes = get_bytes(buf)?;
-                if bytes.len() == 2 && &bytes.chunk()[..2] == b"-1" {
+                if b'-' == peek_u8(buf)? {
+                    let line = get_line(buf)?;
+
+                    if line != b"-1" {
+                        return Err(anyhow!("protocol error; invalid frame format").into());
+                    }
+
                     Ok(Self::NullBulkString)
                 } else {
+                    let bytes = get_bytes(buf)?;
                     Ok(Self::BulkString(bytes))
                 }
             }
