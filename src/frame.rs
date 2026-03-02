@@ -144,7 +144,7 @@ impl Frame {
             }
             b'$' => {
                 let bytes = get_bytes(buf)?;
-                if &bytes.chunk()[..2] == b"-1" {
+                if bytes.len() == 2 && &bytes.chunk()[..2] == b"-1" {
                     Ok(Self::NullBulkString)
                 } else {
                     Ok(Self::BulkString(bytes))
