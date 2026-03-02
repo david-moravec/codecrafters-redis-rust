@@ -117,6 +117,53 @@ impl Db {
         list.len()
     }
 
+    pub fn lpop(&self, key: &str, start: Option<i64>, stop: Option<i64>) -> Option<Vec<Bytes>> {
+        let mut state = self.shared.state.lock().unwrap();
+
+        let list = match state.list_db.get_mut(key) {
+            Some(l) => l,
+            None => return None,
+        };
+
+        if start.is_none() && stop.is_none() {
+            return Some(vec![list.remove(0)]);
+        }
+
+        let list_len = list.len();
+
+        let true_start = {
+            if stop.is_none() {
+                0
+            } else if start.unwrap() < 0 {
+                max(list_len as i64 - start.unwrap().abs(), 0)
+            } else if start.unwrap() >= list_len as i64 {
+                return None;
+            } else {
+                start.unwrap()
+            }
+        };
+
+        let true_stop = {
+            if stop.is_none() {
+                start.unwrap() - 1
+            } else if stop.unwrap() < 0 {
+                max(list_len as i64 - stop.unwrap().abs(), 0)
+            } else if stop.unwrap() >= list_len as i64 {
+                (list_len - 1) as i64
+            } else {
+                stop.unwrap()
+            }
+        };
+
+        let mut result = vec![];
+
+        for _ in true_start as usize..=true_stop as usize {
+            result.push(list.remove(0))
+        }
+
+        Some(result)
+    }
+
     pub fn llen(&self, key: String) -> usize {
         let mut state = self.shared.state.lock().unwrap();
         let list = state.list_db.entry(key).or_insert_with(|| vec![]);
