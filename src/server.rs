@@ -150,4 +150,30 @@ mod tests {
 
         assert_eq!(b"$5\r\nworld\r\n", &response);
     }
+
+    #[tokio::test]
+    async fn test_lrange() {
+        let addr = start_server().await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+
+        stream
+            .write_all(b"*7\r\n+RPUSH\r\n$8\r\nlist_key\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n$1\r\nd\r\n$1\r\ne\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b":5\r\n", &response);
+
+        stream
+            .write_all(b"*4\r\n+LRANGE\r\n$8\r\nlist_key\r\n$2\r\n-2\r\n$2\r\n-1\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 18];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"*2\r\n$1\r\nd\r\n$1\r\ne\r\n", &response);
+    }
 }
