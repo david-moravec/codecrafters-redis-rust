@@ -22,10 +22,10 @@ impl Set {
 
         match parse.next_string() {
             Ok(s) if s == "EX" => {
-                expire = Some(Duration::from_secs(parse.next_integer()?));
+                expire = Some(Duration::from_secs(parse.next_u64()?));
             }
             Ok(s) if s == "PX" => {
-                expire = Some(Duration::from_millis(parse.next_integer()?));
+                expire = Some(Duration::from_millis(parse.next_u64()?));
             }
             Ok(_) => {
                 return Err(anyhow!(

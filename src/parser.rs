@@ -75,7 +75,7 @@ impl Parse {
         }
     }
 
-    pub(crate) fn next_integer(&mut self) -> ParseResult<u64> {
+    pub(crate) fn next_u64(&mut self) -> ParseResult<u64> {
         use atoi::atoi;
 
         match self.next()? {
