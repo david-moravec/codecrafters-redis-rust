@@ -26,7 +26,7 @@ impl RPush {
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {
         let len = db.rpush(self.key, self.values);
-        dst.write_frame(&&Frame::Integer(len as u64)).await?;
+        dst.write_frame(&Frame::Integer(len as u64)).await?;
         Ok(())
     }
 
