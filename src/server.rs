@@ -62,10 +62,13 @@ impl Handle {
 
 #[cfg(test)]
 mod tests {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        time::timeout,
+    };
 
     use super::*;
-    use std::net::SocketAddr;
+    use std::{net::SocketAddr, time::Duration};
 
     pub async fn run(listener: TcpListener) {
         let server = Server::new();
@@ -175,5 +178,52 @@ mod tests {
         stream.read_exact(&mut response).await.unwrap();
 
         assert_eq!(b"*2\r\n$1\r\nd\r\n$1\r\ne\r\n", &response);
+    }
+
+    #[tokio::test]
+    async fn test_blpop() {
+        let addr = start_server().await;
+        let mut stream_blpop = TcpStream::connect(addr).await.unwrap();
+
+        let handle_1 = tokio::spawn(async move {
+            stream_blpop
+                .write_all(b"*3\r\n+BLPOP\r\n$8\r\nlist_key\r\n$1\r\n0\r\n")
+                .await
+                .unwrap();
+
+            let mut response = [0; 25];
+            stream_blpop.read_exact(&mut response).await.unwrap();
+            assert_eq!(b"*2\r\n$8\r\nlist_key\r\n$1\r\na\r\n", &response);
+        });
+
+        let mut stream_blpop_2 = TcpStream::connect(addr).await.unwrap();
+
+        let handle_2 = tokio::spawn(async move {
+            stream_blpop_2
+                .write_all(b"*3\r\n+BLPOP\r\n$8\r\nlist_key\r\n$1\r\n0\r\n")
+                .await
+                .unwrap();
+
+            let mut response = [0; 25];
+            stream_blpop_2.read_exact(&mut response).await.unwrap();
+            assert_eq!(b"*2\r\n$8\r\nlist_key\r\n$1\r\nd\r\n", &response);
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut stream_rpush = TcpStream::connect(addr).await.unwrap();
+
+        stream_rpush
+            .write_all(b"*7\r\n+RPUSH\r\n$8\r\nlist_key\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n$1\r\nd\r\n$1\r\ne\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 4];
+        stream_rpush.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b":5\r\n", &response);
+
+        handle_1.await.unwrap();
+        handle_2.await.unwrap();
     }
 }

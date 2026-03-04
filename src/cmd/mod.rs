@@ -1,3 +1,4 @@
+mod blpop;
 mod echo;
 mod get;
 mod llen;
@@ -14,6 +15,7 @@ use crate::frame::Frame;
 use crate::parser::Parse;
 
 use anyhow::{Result, anyhow};
+use blpop::BLPop;
 use echo::Echo;
 use get::Get;
 use llen::LLen;
@@ -34,6 +36,7 @@ pub enum Command {
     LPush(LPush),
     LLen(LLen),
     LPop(LPop),
+    BLPop(BLPop),
 }
 
 impl Command {
@@ -52,6 +55,7 @@ impl Command {
             "lpush" => Command::LPush(LPush::parse(&mut parse)?),
             "llen" => Command::LLen(LLen::parse(&mut parse)?),
             "lpop" => Command::LPop(LPop::parse(&mut parse)?),
+            "blpop" => Command::BLPop(BLPop::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -71,6 +75,7 @@ impl Command {
             Self::LPush(cmd) => cmd.apply(db, dst).await,
             Self::LLen(cmd) => cmd.apply(db, dst).await,
             Self::LPop(cmd) => cmd.apply(db, dst).await,
+            Self::BLPop(cmd) => cmd.apply(db, dst).await,
         }
     }
 }

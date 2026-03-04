@@ -1,10 +1,13 @@
 use bytes::Bytes;
 use std::{
     cmp::max,
-    collections::HashMap,
-    sync::{Mutex, mpsc},
+    collections::{HashMap, hash_map::Entry},
+    sync::Mutex,
     time::{Duration, Instant},
 };
+use tokio::sync::Notify;
+
+use tokio::sync::oneshot;
 
 use std::sync::Arc;
 
@@ -32,7 +35,8 @@ struct State {
     db: HashMap<String, Bytes>,
     list_db: HashMap<String, Vec<Bytes>>,
     expiry: HashMap<String, Expiry>,
-    waiters: HashMap<String, Vec<mpsc::Sender<Bytes>>>,
+    waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
+    waiters_ready: Vec<(String, oneshot::Sender<Bytes>)>,
 }
 
 impl State {
@@ -42,12 +46,29 @@ impl State {
             list_db: HashMap::new(),
             expiry: HashMap::new(),
             waiters: HashMap::new(),
+            waiters_ready: vec![],
         }
     }
 }
 
 struct Shared {
     state: Mutex<State>,
+    waiters_background_task: Notify,
+}
+
+impl Shared {
+    fn handle_ready_waiters(&self) {
+        let mut state = self.state.lock().unwrap();
+
+        let mut ready_waiters = vec![];
+        std::mem::swap(&mut state.waiters_ready, &mut ready_waiters);
+
+        for (key, waiter) in ready_waiters {
+            waiter
+                .send(state.list_db.get_mut(&key).unwrap().remove(0))
+                .unwrap()
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -57,11 +78,14 @@ pub struct Db {
 
 impl Db {
     pub fn new() -> Self {
-        Db {
-            shared: Arc::new(Shared {
-                state: Mutex::new(State::new()),
-            }),
-        }
+        let shared = Arc::new(Shared {
+            state: Mutex::new(State::new()),
+            waiters_background_task: Notify::new(),
+        });
+
+        tokio::spawn(handle_ready_waiters(shared.clone()));
+
+        Db { shared }
     }
 
     pub fn get(&self, key: &str) -> Option<Bytes> {
@@ -89,8 +113,24 @@ impl Db {
         state.db.insert(key, value);
     }
 
-    pub fn rpush(&self, key: String, values: Vec<Bytes>) -> usize {
+    fn check_for_ready_waiters(&self, key: &str) {
         let mut state = self.shared.state.lock().unwrap();
+
+        if state.waiters.contains_key(key) {
+            let waiters = state.waiters.get_mut(key).unwrap();
+            let waiter = waiters.remove(0);
+            if waiters.len() == 0 {
+                state.waiters.remove(key);
+            }
+            state.waiters_ready.push((key.to_string(), waiter));
+            self.shared.waiters_background_task.notify_one();
+        }
+    }
+
+    pub fn rpush(&self, key: String, values: Vec<Bytes>) -> usize {
+        self.check_for_ready_waiters(&key);
+        let mut state = self.shared.state.lock().unwrap();
+
         let list = state.list_db.entry(key).or_insert_with(|| vec![]);
 
         for value in values {
@@ -101,7 +141,10 @@ impl Db {
     }
 
     pub fn lpush(&self, key: String, values: Vec<Bytes>) -> usize {
+        self.check_for_ready_waiters(&key);
+
         let mut state = self.shared.state.lock().unwrap();
+
         let list = state.list_db.entry(key).or_insert_with(|| vec![]);
 
         for value in values {
@@ -158,6 +201,20 @@ impl Db {
         Some(result)
     }
 
+    pub fn blpop(&self, key: String) -> (Option<Bytes>, Option<oneshot::Receiver<Bytes>>) {
+        if let Some(mut popped) = self.lpop(&key, None, None) {
+            return (Some(popped.remove(0)), None);
+        }
+
+        let mut state = self.shared.state.lock().unwrap();
+
+        let (tx, rx) = oneshot::channel();
+
+        state.waiters.entry(key).or_insert_with(|| vec![]).push(tx);
+
+        (None, Some(rx))
+    }
+
     pub fn llen(&self, key: String) -> usize {
         let mut state = self.shared.state.lock().unwrap();
         let list = state.list_db.entry(key).or_insert_with(|| vec![]);
@@ -201,5 +258,12 @@ impl Db {
             .iter()
             .cloned()
             .collect()
+    }
+}
+
+async fn handle_ready_waiters(shared: Arc<Shared>) {
+    loop {
+        shared.waiters_background_task.notified().await;
+        shared.handle_ready_waiters();
     }
 }
