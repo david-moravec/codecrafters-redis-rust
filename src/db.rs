@@ -83,13 +83,7 @@ impl Db {
         let mut state = self.shared.state.lock().unwrap();
 
         if let Some(expire) = expire {
-            state.expiry.insert(
-                key.clone(),
-                Expiry {
-                    now: Instant::now(),
-                    duration: expire,
-                },
-            );
+            state.expiry.insert(key.clone(), Expiry::from(expire));
         }
 
         state.db.insert(key, value);
