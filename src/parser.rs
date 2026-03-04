@@ -93,6 +93,24 @@ impl Parse {
         }
     }
 
+    pub(crate) fn next_f64(&mut self) -> ParseResult<f64> {
+        match self.next()? {
+            // Frame::Integer(v) => Ok(v),
+            Frame::Simple(s) => s
+                .parse::<f64>()
+                .map_err(|_| anyhow!("protocol error; invalid number").into()),
+            Frame::BulkString(data) => String::from_utf8(data.to_vec())
+                .map_err(|e| ParseError::Other(e.into()))?
+                .parse::<f64>()
+                .map_err(|_| anyhow!("protocol error; invalid number").into()),
+            frame => Err(anyhow!(
+                "protocol error; expected simple string or bulk string, got {:?}",
+                frame
+            )
+            .into()),
+        }
+    }
+
     pub(crate) fn next_i64(&mut self) -> ParseResult<i64> {
         use atoi::atoi;
 

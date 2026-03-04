@@ -7,13 +7,13 @@ use crate::parser::Parse;
 
 pub struct BLPop {
     key: String,
-    timeout: u64,
+    timeout: f64,
 }
 
 impl BLPop {
     pub fn parse(parse: &mut Parse) -> anyhow::Result<Self> {
         let key = parse.next_string()?;
-        let timeout = parse.next_u64()?;
+        let timeout = parse.next_f64()?;
 
         Ok(BLPop { key, timeout })
     }
@@ -27,10 +27,10 @@ impl BLPop {
         let value = match (value, rx) {
             (Some(value), None) => Some(value),
             (None, Some(rx)) => {
-                if self.timeout == 0 {
+                if self.timeout.abs() < f64::EPSILON {
                     Some(rx.await?)
                 } else {
-                    let res = timeout(Duration::from_secs(self.timeout), rx).await;
+                    let res = timeout(Duration::from_secs_f64(self.timeout), rx).await;
                     match res {
                         Ok(v) => Some(v?),
                         Err(_) => None,
@@ -40,16 +40,13 @@ impl BLPop {
             _ => unreachable!(),
         };
 
-        let frame = Frame::Array(Some(vec![
-            Frame::BulkString(Bytes::copy_from_slice(self.key.as_bytes())),
-            {
-                if let Some(bytes) = value {
-                    Frame::BulkString(bytes)
-                } else {
-                    Frame::NullBulkString
-                }
-            },
-        ]));
+        let frame = match value {
+            Some(bytes) => Frame::Array(Some(vec![
+                Frame::BulkString(Bytes::copy_from_slice(self.key.as_bytes())),
+                Frame::BulkString(bytes),
+            ])),
+            None => Frame::Array(None),
+        };
 
         dst.write_frame(&frame).await?;
         Ok(())
