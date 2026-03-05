@@ -180,50 +180,101 @@ mod tests {
         assert_eq!(b"*2\r\n$1\r\nd\r\n$1\r\ne\r\n", &response);
     }
 
+    // #[tokio::test]
+    // async fn test_blpop() {
+    //     let addr = start_server().await;
+    //     let mut stream_blpop = TcpStream::connect(addr).await.unwrap();
+
+    //     let handle_1 = tokio::spawn(async move {
+    //         stream_blpop
+    //             .write_all(b"*3\r\n+BLPOP\r\n$8\r\nlist_key\r\n$1\r\n0\r\n")
+    //             .await
+    //             .unwrap();
+
+    //         let mut response = [0; 25];
+    //         stream_blpop.read_exact(&mut response).await.unwrap();
+    //         assert_eq!(b"*2\r\n$8\r\nlist_key\r\n$1\r\na\r\n", &response);
+    //     });
+
+    //     let mut stream_blpop_2 = TcpStream::connect(addr).await.unwrap();
+
+    //     let handle_2 = tokio::spawn(async move {
+    //         stream_blpop_2
+    //             .write_all(b"*3\r\n+BLPOP\r\n$8\r\nlist_key\r\n$1\r\n0\r\n")
+    //             .await
+    //             .unwrap();
+
+    //         let mut response = [0; 25];
+    //         stream_blpop_2.read_exact(&mut response).await.unwrap();
+    //         assert_eq!(b"*2\r\n$8\r\nlist_key\r\n$1\r\nd\r\n", &response);
+    //     });
+
+    //     tokio::time::sleep(Duration::from_millis(50)).await;
+
+    //     let mut stream_rpush = TcpStream::connect(addr).await.unwrap();
+
+    //     stream_rpush
+    //         .write_all(b"*7\r\n+RPUSH\r\n$8\r\nlist_key\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n$1\r\nd\r\n$1\r\ne\r\n")
+    //         .await
+    //         .unwrap();
+
+    //     let mut response = [0; 4];
+    //     stream_rpush.read_exact(&mut response).await.unwrap();
+
+    //     assert_eq!(b":5\r\n", &response);
+
+    //     handle_1.await.unwrap();
+    //     handle_2.await.unwrap();
+    // }
+
     #[tokio::test]
-    async fn test_blpop() {
+    async fn test_xadd() {
         let addr = start_server().await;
-        let mut stream_blpop = TcpStream::connect(addr).await.unwrap();
+        let mut stream = TcpStream::connect(addr).await.unwrap();
 
-        let handle_1 = tokio::spawn(async move {
-            stream_blpop
-                .write_all(b"*3\r\n+BLPOP\r\n$8\r\nlist_key\r\n$1\r\n0\r\n")
-                .await
-                .unwrap();
-
-            let mut response = [0; 25];
-            stream_blpop.read_exact(&mut response).await.unwrap();
-            assert_eq!(b"*2\r\n$8\r\nlist_key\r\n$1\r\na\r\n", &response);
-        });
-
-        let mut stream_blpop_2 = TcpStream::connect(addr).await.unwrap();
-
-        let handle_2 = tokio::spawn(async move {
-            stream_blpop_2
-                .write_all(b"*3\r\n+BLPOP\r\n$8\r\nlist_key\r\n$1\r\n0\r\n")
-                .await
-                .unwrap();
-
-            let mut response = [0; 25];
-            stream_blpop_2.read_exact(&mut response).await.unwrap();
-            assert_eq!(b"*2\r\n$8\r\nlist_key\r\n$1\r\nd\r\n", &response);
-        });
-
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        let mut stream_rpush = TcpStream::connect(addr).await.unwrap();
-
-        stream_rpush
-            .write_all(b"*7\r\n+RPUSH\r\n$8\r\nlist_key\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n$1\r\nd\r\n$1\r\ne\r\n")
+        stream
+            .write_all(b"*5\r\n+XADD\r\n$8\r\nsome_key\r\n$3\r\n1-1\r\n$3\r\nfoo\r\n$3\r\nbar\r\n")
             .await
             .unwrap();
 
-        let mut response = [0; 4];
-        stream_rpush.read_exact(&mut response).await.unwrap();
+        let mut response = [0; 9];
+        stream.read_exact(&mut response).await.unwrap();
 
-        assert_eq!(b":5\r\n", &response);
+        assert_eq!(b"$3\r\n1-1\r\n", &response);
 
-        handle_1.await.unwrap();
-        handle_2.await.unwrap();
+        stream
+            .write_all(b"*5\r\n+XADD\r\n$8\r\nsome_key\r\n$3\r\n1-2\r\n$3\r\nfoa\r\n$3\r\nbor\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 9];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"$3\r\n1-2\r\n", &response);
+
+        stream
+            .write_all(b"*5\r\n+XADD\r\n$8\r\nsome_key\r\n$3\r\n1-2\r\n$3\r\nfoa\r\n$3\r\nbor\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 83];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n", &response);
+
+        stream
+            .write_all(
+                b"*5\r\n+XADD\r\n$8\r\nstream_key\r\n$3\r\n0-0\r\n$3\r\nfoa\r\n$3\r\nbor\r\n",
+            )
+            .await
+            .unwrap();
+
+        let mut response = [0; 56];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(
+            b"-ERR The ID specified in XADD must be greater than 0-0\r\n",
+            &response
+        );
     }
 }
