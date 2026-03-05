@@ -259,6 +259,16 @@ impl Db {
             .cloned()
             .collect()
     }
+
+    pub fn value_type(&self, key: &str) -> String {
+        let state = self.shared.state.lock().unwrap();
+
+        if state.db.contains_key(key) {
+            "string".to_string()
+        } else {
+            "none".to_string()
+        }
+    }
 }
 
 async fn handle_ready_waiters(shared: Arc<Shared>) {

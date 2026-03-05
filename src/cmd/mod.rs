@@ -8,6 +8,7 @@ mod lrange;
 mod ping;
 mod rpush;
 mod set;
+mod type_cmd;
 
 use crate::connection::Connection;
 use crate::db::Db;
@@ -25,6 +26,7 @@ use lrange::LRange;
 use ping::Ping;
 use rpush::RPush;
 use set::Set;
+use type_cmd::Type;
 
 pub enum Command {
     Ping(Ping),
@@ -37,6 +39,7 @@ pub enum Command {
     LLen(LLen),
     LPop(LPop),
     BLPop(BLPop),
+    Type(Type),
 }
 
 impl Command {
@@ -56,6 +59,7 @@ impl Command {
             "llen" => Command::LLen(LLen::parse(&mut parse)?),
             "lpop" => Command::LPop(LPop::parse(&mut parse)?),
             "blpop" => Command::BLPop(BLPop::parse(&mut parse)?),
+            "type" => Command::Type(Type::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -76,6 +80,7 @@ impl Command {
             Self::LLen(cmd) => cmd.apply(db, dst).await,
             Self::LPop(cmd) => cmd.apply(db, dst).await,
             Self::BLPop(cmd) => cmd.apply(db, dst).await,
+            Self::Type(cmd) => cmd.apply(db, dst).await,
         }
     }
 }
