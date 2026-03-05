@@ -9,6 +9,7 @@ mod ping;
 mod rpush;
 mod set;
 mod type_cmd;
+mod xadd;
 
 use crate::connection::Connection;
 use crate::db::Db;
@@ -27,6 +28,7 @@ use ping::Ping;
 use rpush::RPush;
 use set::Set;
 use type_cmd::Type;
+use xadd::XAdd;
 
 pub enum Command {
     Ping(Ping),
@@ -40,6 +42,7 @@ pub enum Command {
     LPop(LPop),
     BLPop(BLPop),
     Type(Type),
+    XAdd(XAdd),
 }
 
 impl Command {
@@ -60,6 +63,7 @@ impl Command {
             "lpop" => Command::LPop(LPop::parse(&mut parse)?),
             "blpop" => Command::BLPop(BLPop::parse(&mut parse)?),
             "type" => Command::Type(Type::parse(&mut parse)?),
+            "xadd" => Command::XAdd(XAdd::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -81,6 +85,7 @@ impl Command {
             Self::LPop(cmd) => cmd.apply(db, dst).await,
             Self::BLPop(cmd) => cmd.apply(db, dst).await,
             Self::Type(cmd) => cmd.apply(db, dst).await,
+            Self::XAdd(cmd) => cmd.apply(db, dst).await,
         }
     }
 }

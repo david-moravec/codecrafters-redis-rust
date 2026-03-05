@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use std::{
     cmp::max,
-    collections::{HashMap, hash_map::Entry},
+    collections::{BTreeMap, HashMap, hash_map::Entry},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -31,9 +31,14 @@ impl From<Duration> for Expiry {
     }
 }
 
+pub type StreamEntry = Vec<(String, Bytes)>;
+
+type Stream = BTreeMap<Bytes, StreamEntry>;
+
 struct State {
     db: HashMap<String, Bytes>,
     list_db: HashMap<String, Vec<Bytes>>,
+    streams: HashMap<String, Stream>,
     expiry: HashMap<String, Expiry>,
     waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
     waiters_ready: Vec<(String, oneshot::Sender<Bytes>)>,
@@ -44,6 +49,7 @@ impl State {
         Self {
             db: HashMap::new(),
             list_db: HashMap::new(),
+            streams: HashMap::new(),
             expiry: HashMap::new(),
             waiters: HashMap::new(),
             waiters_ready: vec![],
@@ -265,9 +271,17 @@ impl Db {
 
         if state.db.contains_key(key) {
             "string".to_string()
+        } else if state.streams.contains_key(key) {
+            "stream".to_string()
         } else {
             "none".to_string()
         }
+    }
+
+    pub fn xadd(&self, key: String, id: Bytes, values: StreamEntry) {
+        let mut state = self.shared.state.lock().unwrap();
+        let stream = state.streams.entry(key).or_insert(Stream::new());
+        stream.insert(id, values);
     }
 }
 

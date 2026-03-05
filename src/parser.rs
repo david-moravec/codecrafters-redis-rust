@@ -41,6 +41,10 @@ impl Parse {
         self.parts.next().ok_or(ParseError::EndOfStream)
     }
 
+    pub(crate) fn end_of_stream_reached(&mut self) -> bool {
+        return self.parts.next().is_none();
+    }
+
     pub(crate) fn next_string(&mut self) -> ParseResult<String> {
         match self.next()? {
             Frame::Simple(s) => Ok(s),
