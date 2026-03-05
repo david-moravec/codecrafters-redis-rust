@@ -1,15 +1,18 @@
 use bytes::Bytes;
 use std::{
     cmp::max,
-    collections::{BTreeMap, HashMap, hash_map::Entry},
+    collections::{BTreeMap, HashMap},
     sync::Mutex,
     time::{Duration, Instant},
 };
 use tokio::sync::Notify;
 
+use thiserror::Error;
 use tokio::sync::oneshot;
 
 use std::sync::Arc;
+
+use crate::parser::StreamID;
 
 struct Expiry {
     now: Instant,
@@ -33,7 +36,17 @@ impl From<Duration> for Expiry {
 
 pub type StreamEntry = Vec<(String, Bytes)>;
 
-type Stream = BTreeMap<Bytes, StreamEntry>;
+type Stream = BTreeMap<StreamID, StreamEntry>;
+
+#[derive(Debug, Error)]
+pub enum StreamError {
+    #[error("ERR The ID specified in XADD is equal or smaller than the target stream top item")]
+    InvalidId,
+    #[error("ERR The ID specified in XADD must be greater 0-0")]
+    SmallId,
+    #[error("other error occured")]
+    Other(#[from] anyhow::Error),
+}
 
 struct State {
     db: HashMap<String, Bytes>,
@@ -278,10 +291,24 @@ impl Db {
         }
     }
 
-    pub fn xadd(&self, key: String, id: Bytes, values: StreamEntry) {
+    pub fn xadd(&self, key: String, id: StreamID, values: StreamEntry) -> Result<(), StreamError> {
+        if id == StreamID::new(0, 0) {
+            return Err(StreamError::InvalidId);
+        };
+
         let mut state = self.shared.state.lock().unwrap();
         let stream = state.streams.entry(key).or_insert(Stream::new());
+
+        if let Some(e) = stream.last_entry() {
+            let key = *e.key();
+            if id <= key {
+                return Err(StreamError::SmallId);
+            }
+        }
+
         stream.insert(id, values);
+
+        Ok(())
     }
 }
 

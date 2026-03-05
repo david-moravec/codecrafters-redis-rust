@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use thiserror::Error;
 
-use std::{str, vec};
+use std::{fmt::Display, str, vec};
 
 #[derive(Debug)]
 pub(crate) struct Parse {
@@ -19,6 +19,53 @@ pub enum ParseError {
 }
 
 type ParseResult<T> = Result<T, ParseError>;
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Hash, Clone, Ord, Copy)]
+pub(crate) struct StreamID {
+    miliseconds: u64,
+    sequence: u64,
+}
+
+impl StreamID {
+    pub fn new(miliseconds: u64, sequence: u64) -> Self {
+        Self {
+            miliseconds,
+            sequence,
+        }
+    }
+}
+
+impl TryFrom<Bytes> for StreamID {
+    type Error = ParseError;
+
+    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
+        use atoi::atoi;
+
+        let dash_index = value
+            .iter()
+            .position(|b| *b == b'-')
+            .ok_or(ParseError::Other(anyhow!(
+                "protocol error; expected to find '-' in stream id"
+            )))?;
+        let miliseconds = atoi::<u64>(&value[..dash_index]).ok_or(ParseError::Other(anyhow!(
+            "protocol error; expected u64 bytes as miliseconds"
+        )))?;
+        let sequence = atoi::<u64>(&value[dash_index + 1..]).ok_or(ParseError::Other(anyhow!(
+            "protocol error; expected u64 bytes as sequence"
+        )))?;
+
+        Ok(Self {
+            miliseconds,
+            sequence,
+        })
+    }
+}
+
+impl Display for StreamID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:}-{:}", self.miliseconds, self.sequence)
+    }
+}
 
 impl Parse {
     pub(crate) fn new(frame: Frame) -> ParseResult<Self> {
@@ -113,6 +160,10 @@ impl Parse {
             )
             .into()),
         }
+    }
+
+    pub(crate) fn next_stream_id(&mut self) -> ParseResult<StreamID> {
+        StreamID::try_from(self.next_bytes()?)
     }
 
     pub(crate) fn next_i64(&mut self) -> ParseResult<i64> {

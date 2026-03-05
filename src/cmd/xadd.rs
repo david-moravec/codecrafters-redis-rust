@@ -1,19 +1,19 @@
 use crate::db::StreamEntry;
 use crate::frame::Frame;
-use crate::parser::Parse;
+use crate::parser::{Parse, StreamID};
 
 use bytes::Bytes;
 
 pub struct XAdd {
     key: String,
-    id: Bytes,
+    id: StreamID,
     values: StreamEntry,
 }
 
 impl XAdd {
     pub fn parse(parse: &mut Parse) -> anyhow::Result<Self> {
         let key = parse.next_string()?;
-        let id = parse.next_bytes()?;
+        let id = parse.next_stream_id()?;
 
         let mut values = vec![];
 
@@ -32,8 +32,20 @@ impl XAdd {
         db: &crate::db::Db,
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {
-        db.xadd(self.key, self.id.clone(), self.values);
-        dst.write_frame(&Frame::BulkString(self.id)).await?;
+        use crate::db::StreamError;
+
+        let frame = match db.xadd(self.key, self.id.clone(), self.values) {
+            Ok(()) => Frame::BulkString(Bytes::copy_from_slice(format!("{:}", self.id).as_bytes())),
+            Err(StreamError::SmallId) => Frame::Error(
+                "ERR The ID specified in XADD is equal or smaller than the target stream top item"
+                    .to_string(),
+            ),
+            Err(StreamError::InvalidId) => {
+                Frame::Error("ERR The ID specified in XADD must be greater than 0-0".to_string())
+            }
+            Err(StreamError::Other(e)) => Err(e)?,
+        };
+        dst.write_frame(&frame).await?;
         Ok(())
     }
 }
