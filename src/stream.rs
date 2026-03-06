@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::fmt::Display;
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use crate::parser::StreamEntryIDOpt;
@@ -19,7 +20,7 @@ pub enum StreamError {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Hash, Clone, Ord, Copy)]
 pub struct StreamEntryID {
-    miliseconds: u64,
+    miliseconds: u128,
     sequence: u64,
 }
 
@@ -61,6 +62,14 @@ impl Stream {
     }
 
     fn generate_id(&self, mut id_opt: StreamEntryIDOpt) -> Result<StreamEntryID, StreamError> {
+        if id_opt.miliseconds.is_none() {
+            id_opt.miliseconds = Some(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis(),
+            )
+        }
         if id_opt.sequence.is_none() {
             id_opt.sequence = match self.entries.last_key_value() {
                 Some((key, _)) if key.miliseconds == id_opt.miliseconds.unwrap() => {

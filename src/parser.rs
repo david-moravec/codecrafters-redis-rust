@@ -22,12 +22,12 @@ type ParseResult<T> = Result<T, ParseError>;
 
 #[derive(Debug)]
 pub(crate) struct StreamEntryIDOpt {
-    pub(crate) miliseconds: Option<u64>,
+    pub(crate) miliseconds: Option<u128>,
     pub(crate) sequence: Option<u64>,
 }
 
 impl StreamEntryIDOpt {
-    pub(crate) fn new(miliseconds: Option<u64>, sequence: Option<u64>) -> Self {
+    pub(crate) fn new(miliseconds: Option<u128>, sequence: Option<u64>) -> Self {
         Self {
             miliseconds,
             sequence,
@@ -41,6 +41,10 @@ impl TryFrom<Bytes> for StreamEntryIDOpt {
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
         use atoi::atoi;
 
+        if value.len() == 1 && value[0] == b'*' {
+            return Ok(Self::new(None, None));
+        }
+
         let dash_index = value
             .iter()
             .position(|b| *b == b'-')
@@ -52,7 +56,7 @@ impl TryFrom<Bytes> for StreamEntryIDOpt {
                 None
             } else {
                 Some(
-                    atoi::<u64>(&value[..dash_index]).ok_or(ParseError::Other(anyhow!(
+                    atoi::<u128>(&value[..dash_index]).ok_or(ParseError::Other(anyhow!(
                         "protocol error; expected u64 bytes as miliseconds"
                     )))?,
                 )
