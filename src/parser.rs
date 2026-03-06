@@ -20,14 +20,14 @@ pub enum ParseError {
 
 type ParseResult<T> = Result<T, ParseError>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Hash, Clone, Ord, Copy)]
-pub(crate) struct StreamID {
-    miliseconds: u64,
-    sequence: u64,
+#[derive(Debug)]
+pub(crate) struct StreamIDOpt {
+    pub(crate) miliseconds: Option<u64>,
+    pub(crate) sequence: Option<u64>,
 }
 
-impl StreamID {
-    pub fn new(miliseconds: u64, sequence: u64) -> Self {
+impl StreamIDOpt {
+    pub(crate) fn new(miliseconds: Option<u64>, sequence: Option<u64>) -> Self {
         Self {
             miliseconds,
             sequence,
@@ -35,7 +35,7 @@ impl StreamID {
     }
 }
 
-impl TryFrom<Bytes> for StreamID {
+impl TryFrom<Bytes> for StreamIDOpt {
     type Error = ParseError;
 
     fn try_from(value: Bytes) -> Result<Self, Self::Error> {
@@ -47,23 +47,47 @@ impl TryFrom<Bytes> for StreamID {
             .ok_or(ParseError::Other(anyhow!(
                 "protocol error; expected to find '-' in stream id"
             )))?;
-        let miliseconds = atoi::<u64>(&value[..dash_index]).ok_or(ParseError::Other(anyhow!(
-            "protocol error; expected u64 bytes as miliseconds"
-        )))?;
-        let sequence = atoi::<u64>(&value[dash_index + 1..]).ok_or(ParseError::Other(anyhow!(
-            "protocol error; expected u64 bytes as sequence"
-        )))?;
+        let miliseconds = {
+            if value[0] == b'*' {
+                None
+            } else {
+                Some(
+                    atoi::<u64>(&value[..dash_index]).ok_or(ParseError::Other(anyhow!(
+                        "protocol error; expected u64 bytes as miliseconds"
+                    )))?,
+                )
+            }
+        };
+        let sequence = {
+            if value[dash_index + 1] == b'*' {
+                None
+            } else {
+                Some(
+                    atoi::<u64>(&value[dash_index + 1..]).ok_or(ParseError::Other(anyhow!(
+                        "protocol error; expected u64 bytes as sequence"
+                    )))?,
+                )
+            }
+        };
 
-        Ok(Self {
-            miliseconds,
-            sequence,
-        })
+        Ok(Self::new(miliseconds, sequence))
     }
 }
 
-impl Display for StreamID {
+impl Display for StreamIDOpt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:}-{:}", self.miliseconds, self.sequence)
+        if self.miliseconds.is_some() {
+            write!(f, "{:}", self.miliseconds.unwrap())?;
+        } else {
+            write!(f, "*")?;
+        }
+        write!(f, "-")?;
+
+        if self.sequence.is_some() {
+            write!(f, "{:}", self.sequence.unwrap())
+        } else {
+            write!(f, "*")
+        }
     }
 }
 
@@ -162,8 +186,8 @@ impl Parse {
         }
     }
 
-    pub(crate) fn next_stream_id(&mut self) -> ParseResult<StreamID> {
-        StreamID::try_from(self.next_bytes()?)
+    pub(crate) fn next_stream_id(&mut self) -> ParseResult<StreamIDOpt> {
+        StreamIDOpt::try_from(self.next_bytes()?)
     }
 
     pub(crate) fn next_i64(&mut self) -> ParseResult<i64> {
