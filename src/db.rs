@@ -1,19 +1,18 @@
 use bytes::Bytes;
 use std::{
     cmp::max,
-    collections::{BTreeMap, HashMap},
-    fmt::Display,
+    collections::HashMap,
     sync::Mutex,
     time::{Duration, Instant},
 };
 use tokio::sync::Notify;
 
-use thiserror::Error;
 use tokio::sync::oneshot;
 
 use std::sync::Arc;
 
-use crate::parser::StreamIDOpt;
+use crate::parser::StreamEntryIDOpt;
+use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError};
 
 struct Expiry {
     now: Instant,
@@ -33,52 +32,6 @@ impl From<Duration> for Expiry {
             duration,
         }
     }
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Hash, Clone, Ord, Copy)]
-pub struct StreamID {
-    miliseconds: u64,
-    sequence: u64,
-}
-
-impl TryFrom<StreamIDOpt> for StreamID {
-    type Error = StreamError;
-
-    fn try_from(value: StreamIDOpt) -> Result<Self, Self::Error> {
-        let miliseconds = value.miliseconds.ok_or(StreamError::MissingValue)?;
-        let sequence = value.sequence.ok_or(StreamError::MissingValue)?;
-
-        if sequence == 0 && miliseconds == 0 {
-            Err(StreamError::ZeroZeroID)
-        } else {
-            Ok(Self {
-                miliseconds,
-                sequence,
-            })
-        }
-    }
-}
-
-impl Display for StreamID {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:}-{:}", self.miliseconds, self.sequence)
-    }
-}
-
-pub type StreamEntry = Vec<(String, Bytes)>;
-
-type Stream = BTreeMap<StreamID, StreamEntry>;
-
-#[derive(Debug, Error)]
-pub enum StreamError {
-    #[error("ERR The ID specified in XADD is equal or smaller than the target stream top item")]
-    InvalidId,
-    #[error("ERR The ID specified in XADD must be greater 0-0")]
-    ZeroZeroID,
-    #[error("ERR The ID has sequence or miliseconds missing")]
-    MissingValue,
-    #[error("other error occured")]
-    Other(#[from] anyhow::Error),
 }
 
 struct State {
@@ -327,24 +280,13 @@ impl Db {
     pub fn xadd(
         &self,
         key: String,
-        id_opt: StreamIDOpt,
+        id_opt: StreamEntryIDOpt,
         values: StreamEntry,
-    ) -> Result<StreamID, StreamError> {
-        let id = StreamID::try_from(id_opt)?;
-
+    ) -> Result<StreamEntryID, StreamError> {
         let mut state = self.shared.state.lock().unwrap();
         let stream = state.streams.entry(key).or_insert(Stream::new());
 
-        if let Some(e) = stream.last_entry() {
-            let key = *e.key();
-            if id <= key {
-                return Err(StreamError::InvalidId);
-            }
-        }
-
-        stream.insert(id, values);
-
-        Ok(id)
+        stream.insert(id_opt, values)
     }
 }
 

@@ -4,6 +4,7 @@ mod db;
 mod frame;
 mod parser;
 mod server;
+mod stream;
 
 use crate::server::Server;
 
