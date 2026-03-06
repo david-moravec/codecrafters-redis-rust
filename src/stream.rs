@@ -60,7 +60,22 @@ impl Stream {
         }
     }
 
-    fn generate_id(&self, id_opt: StreamEntryIDOpt) -> Result<StreamEntryID, StreamError> {
+    fn generate_id(&self, mut id_opt: StreamEntryIDOpt) -> Result<StreamEntryID, StreamError> {
+        if id_opt.sequence.is_none() {
+            id_opt.sequence = match self.entries.last_key_value() {
+                Some((key, _)) if key.miliseconds == id_opt.miliseconds.unwrap() => {
+                    Some(key.sequence + 1)
+                }
+                _ => {
+                    if id_opt.miliseconds.unwrap() == 0 {
+                        Some(1)
+                    } else {
+                        Some(0)
+                    }
+                }
+            }
+        }
+
         StreamEntryID::try_from(id_opt)
     }
 

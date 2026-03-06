@@ -264,7 +264,7 @@ mod tests {
 
         stream
             .write_all(
-                b"*5\r\n+XADD\r\n$8\r\nstream_key\r\n$3\r\n0-0\r\n$3\r\nfoa\r\n$3\r\nbor\r\n",
+                b"*5\r\n+XADD\r\n$10\r\nstream_key\r\n$3\r\n0-0\r\n$3\r\nfoa\r\n$3\r\nbor\r\n",
             )
             .await
             .unwrap();
@@ -276,5 +276,41 @@ mod tests {
             b"-ERR The ID specified in XADD must be greater than 0-0\r\n",
             &response
         );
+    }
+
+    #[tokio::test]
+    async fn test_xadd_wildcard_id() {
+        let addr = start_server().await;
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+
+        stream
+            .write_all(b"*5\r\n+XADD\r\n$8\r\nsome_key\r\n$3\r\n0-*\r\n$3\r\nfoo\r\n$3\r\nbar\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 9];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"$3\r\n0-1\r\n", &response);
+
+        stream
+            .write_all(b"*5\r\n+XADD\r\n$8\r\nsome_key\r\n$3\r\n1-*\r\n$3\r\nfoa\r\n$3\r\nbor\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 9];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"$3\r\n1-0\r\n", &response);
+
+        stream
+            .write_all(b"*5\r\n+XADD\r\n$8\r\nsome_key\r\n$3\r\n1-*\r\n$3\r\nfoa\r\n$3\r\nbor\r\n")
+            .await
+            .unwrap();
+
+        let mut response = [0; 9];
+        stream.read_exact(&mut response).await.unwrap();
+
+        assert_eq!(b"$3\r\n1-1\r\n", &response);
     }
 }
