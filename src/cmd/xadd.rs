@@ -18,7 +18,7 @@ impl XAdd {
         let mut values = vec![];
 
         loop {
-            values.push((parse.next_string()?, parse.next_bytes()?));
+            values.push((parse.next_bytes()?, parse.next_bytes()?));
 
             if parse.end_of_stream_reached() {
                 break;
@@ -35,7 +35,7 @@ impl XAdd {
         use crate::stream::StreamError;
 
         let frame = match db.xadd(self.key, self.id, self.values) {
-            Ok(id) => Frame::BulkString(Bytes::copy_from_slice(format!("{:}", id).as_bytes())),
+            Ok(id) => Frame::BulkString(Bytes::from(format!("{:}", id))),
             Err(StreamError::Other(e)) => Err(e)?,
             Err(e) => Frame::Error(format!("{:}", e)),
         };

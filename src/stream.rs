@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::fmt::Display;
+use std::ops::Bound::Included;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
@@ -48,7 +49,7 @@ impl Display for StreamEntryID {
     }
 }
 
-pub type StreamEntry = Vec<(String, Bytes)>;
+pub type StreamEntry = Vec<(Bytes, Bytes)>;
 
 pub struct Stream {
     entries: BTreeMap<StreamEntryID, StreamEntry>,
@@ -104,5 +105,24 @@ impl Stream {
 
         self.entries.insert(id, values);
         Ok(id)
+    }
+
+    pub fn xrange(
+        &self,
+        mut start: StreamEntryIDOpt,
+        end: StreamEntryIDOpt,
+    ) -> Result<Vec<(StreamEntryID, StreamEntry)>, StreamError> {
+        if start.sequence.is_none() {
+            start.sequence = Some(0)
+        }
+
+        let start_id = StreamEntryID::try_from(start)?;
+        let end_id = self.generate_id(end)?;
+
+        Ok(self
+            .entries
+            .range((Included(&start_id), Included(&end_id)))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect())
     }
 }

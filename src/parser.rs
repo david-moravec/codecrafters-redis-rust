@@ -45,12 +45,8 @@ impl TryFrom<Bytes> for StreamEntryIDOpt {
             return Ok(Self::new(None, None));
         }
 
-        let dash_index = value
-            .iter()
-            .position(|b| *b == b'-')
-            .ok_or(ParseError::Other(anyhow!(
-                "protocol error; expected to find '-' in stream id"
-            )))?;
+        let dash_index = value.iter().position(|b| *b == b'-').unwrap_or(value.len());
+
         let miliseconds = {
             if value[0] == b'*' {
                 None
@@ -63,7 +59,9 @@ impl TryFrom<Bytes> for StreamEntryIDOpt {
             }
         };
         let sequence = {
-            if value[dash_index + 1] == b'*' {
+            if value.len() == dash_index {
+                None
+            } else if value[dash_index + 1] == b'*' {
                 None
             } else {
                 Some(

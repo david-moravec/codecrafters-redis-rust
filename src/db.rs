@@ -288,6 +288,18 @@ impl Db {
 
         stream.insert(id_opt, values)
     }
+
+    pub fn xrange(
+        &self,
+        key: String,
+        start: StreamEntryIDOpt,
+        end: StreamEntryIDOpt,
+    ) -> Result<Vec<(StreamEntryID, StreamEntry)>, StreamError> {
+        let mut state = self.shared.state.lock().unwrap();
+        let stream = state.streams.entry(key).or_insert(Stream::new());
+
+        stream.xrange(start, end)
+    }
 }
 
 async fn handle_ready_waiters(shared: Arc<Shared>) {
