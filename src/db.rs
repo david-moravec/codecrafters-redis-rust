@@ -2,7 +2,7 @@ use bytes::Bytes;
 use std::{
     cmp::max,
     collections::HashMap,
-    sync::Mutex,
+    sync::{Mutex, mpsc::SendError},
     time::{Duration, Instant},
 };
 use tokio::sync::Notify;
@@ -40,7 +40,7 @@ struct State {
     streams: HashMap<String, Stream>,
     expiry: HashMap<String, Expiry>,
     waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
-    waiters_ready: Vec<(String, oneshot::Sender<Bytes>)>,
+    waiters_ready: Vec<String>,
 }
 
 impl State {
@@ -68,10 +68,29 @@ impl Shared {
         let mut ready_waiters = vec![];
         std::mem::swap(&mut state.waiters_ready, &mut ready_waiters);
 
-        for (key, waiter) in ready_waiters {
-            waiter
-                .send(state.list_db.get_mut(&key).unwrap().remove(0))
-                .unwrap()
+        for key in ready_waiters {
+            loop {
+                let data = state.list_db.get(&key).unwrap()[0].clone();
+
+                match state.waiters.get_mut(&key) {
+                    Some(waiters) => {
+                        if waiters.len() == 0 {
+                            break;
+                        }
+                        let waiter = waiters.remove(0);
+
+                        match waiter.send(data) {
+                            Ok(()) => {
+                                // Sending was succesful remove the data
+                                state.list_db.get_mut(&key).unwrap().remove(0);
+                                break;
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                    None => break,
+                }
+            }
         }
     }
 }
@@ -122,12 +141,7 @@ impl Db {
         let mut state = self.shared.state.lock().unwrap();
 
         if state.waiters.contains_key(key) {
-            let waiters = state.waiters.get_mut(key).unwrap();
-            let waiter = waiters.remove(0);
-            if waiters.len() == 0 {
-                state.waiters.remove(key);
-            }
-            state.waiters_ready.push((key.to_string(), waiter));
+            state.waiters_ready.push(key.to_string());
             self.shared.waiters_background_task.notify_one();
         }
     }
