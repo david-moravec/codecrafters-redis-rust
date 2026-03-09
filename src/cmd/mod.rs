@@ -11,6 +11,7 @@ mod set;
 mod type_cmd;
 mod xadd;
 mod xrange;
+mod xread;
 
 use crate::connection::Connection;
 use crate::db::Db;
@@ -31,6 +32,7 @@ use set::Set;
 use type_cmd::Type;
 use xadd::XAdd;
 use xrange::XRange;
+use xread::XRead;
 
 pub enum Command {
     Ping(Ping),
@@ -46,6 +48,7 @@ pub enum Command {
     Type(Type),
     XAdd(XAdd),
     XRange(XRange),
+    XRead(XRead),
 }
 
 impl Command {
@@ -68,6 +71,7 @@ impl Command {
             "type" => Command::Type(Type::parse(&mut parse)?),
             "xadd" => Command::XAdd(XAdd::parse(&mut parse)?),
             "xrange" => Command::XRange(XRange::parse(&mut parse)?),
+            "xread" => Command::XRead(XRead::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -91,6 +95,7 @@ impl Command {
             Self::Type(cmd) => cmd.apply(db, dst).await,
             Self::XAdd(cmd) => cmd.apply(db, dst).await,
             Self::XRange(cmd) => cmd.apply(db, dst).await,
+            Self::XRead(cmd) => cmd.apply(db, dst).await,
         }
     }
 }

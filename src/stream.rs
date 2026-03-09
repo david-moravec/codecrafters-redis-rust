@@ -42,14 +42,10 @@ impl TryFrom<StreamEntryIDOpt> for StreamEntryID {
         let miliseconds = value.miliseconds.ok_or(StreamError::MissingValue)?;
         let sequence = value.sequence.ok_or(StreamError::MissingValue)?;
 
-        if sequence == 0 && miliseconds == 0 {
-            Err(StreamError::ZeroZeroID)
-        } else {
-            Ok(Self {
-                miliseconds,
-                sequence,
-            })
-        }
+        Ok(Self {
+            miliseconds,
+            sequence,
+        })
     }
 }
 
@@ -75,8 +71,8 @@ impl ToFrame for StreamEntry {
         Frame::Array(Some(
             self.values
                 .into_iter()
-                .flat_map(|(key, value)| {
-                    [Frame::BulkString(key), Frame::BulkString(value)].into_iter()
+                .flat_map(|(id, entry)| {
+                    [Frame::BulkString(id), Frame::BulkString(entry)].into_iter()
                 })
                 .collect(),
         ))
@@ -84,7 +80,7 @@ impl ToFrame for StreamEntry {
 }
 
 pub struct XRange {
-    pub(crate) entries: Vec<(StreamEntryID, StreamEntry)>,
+    entries: Vec<(StreamEntryID, StreamEntry)>,
 }
 
 impl ToFrame for XRange {
@@ -99,6 +95,32 @@ impl ToFrame for XRange {
                             vec_entries.to_frame(),
                         ]
                     }))
+                })
+                .collect(),
+        ))
+    }
+}
+
+pub struct XRead {
+    entries: Vec<(String, XRange)>,
+}
+
+impl XRead {
+    pub fn new(entries: Vec<(String, XRange)>) -> Self {
+        Self { entries }
+    }
+}
+
+impl ToFrame for XRead {
+    fn to_frame(self) -> Frame {
+        Frame::Array(Some(
+            self.entries
+                .into_iter()
+                .map(|(key, xrange)| {
+                    Frame::Array(Some(vec![
+                        Frame::BulkString(Bytes::from(key)),
+                        xrange.to_frame(),
+                    ]))
                 })
                 .collect(),
         ))
@@ -149,6 +171,10 @@ impl Stream {
         values: StreamEntry,
     ) -> Result<StreamEntryID, StreamError> {
         let id = self.generate_id(id_opt)?;
+
+        if id.miliseconds == 0 && id.sequence == 0 {
+            return Err(StreamError::ZeroZeroID);
+        }
 
         if let Some(e) = self.entries.last_entry() {
             let key = *e.key();
