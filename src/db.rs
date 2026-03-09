@@ -2,7 +2,7 @@ use bytes::Bytes;
 use std::{
     cmp::max,
     collections::HashMap,
-    sync::{Mutex, mpsc::SendError},
+    sync::Mutex,
     time::{Duration, Instant},
 };
 use tokio::sync::Notify;
@@ -306,8 +306,8 @@ impl Db {
     pub fn xrange(
         &self,
         key: String,
-        start: StreamEntryIDOpt,
-        end: StreamEntryIDOpt,
+        start: Option<StreamEntryIDOpt>,
+        end: Option<StreamEntryIDOpt>,
     ) -> Result<Vec<(StreamEntryID, StreamEntry)>, StreamError> {
         let mut state = self.shared.state.lock().unwrap();
         let stream = state.streams.entry(key).or_insert(Stream::new());

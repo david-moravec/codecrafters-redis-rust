@@ -25,6 +25,15 @@ pub struct StreamEntryID {
     sequence: u64,
 }
 
+impl StreamEntryID {
+    pub(crate) fn new(miliseconds: u128, sequence: u64) -> Self {
+        Self {
+            miliseconds,
+            sequence,
+        }
+    }
+}
+
 impl TryFrom<StreamEntryIDOpt> for StreamEntryID {
     type Error = StreamError;
 
@@ -109,15 +118,23 @@ impl Stream {
 
     pub fn xrange(
         &self,
-        mut start: StreamEntryIDOpt,
-        end: StreamEntryIDOpt,
+        start: Option<StreamEntryIDOpt>,
+        end: Option<StreamEntryIDOpt>,
     ) -> Result<Vec<(StreamEntryID, StreamEntry)>, StreamError> {
-        if start.sequence.is_none() {
-            start.sequence = Some(0)
-        }
+        let start_id = match start {
+            Some(mut id) => {
+                if id.sequence.is_none() {
+                    id.sequence = Some(0)
+                }
 
-        let start_id = StreamEntryID::try_from(start)?;
-        let end_id = self.generate_id(end)?;
+                StreamEntryID::try_from(id)?
+            }
+            None => StreamEntryID::new(0, 0),
+        };
+        let end_id = match end {
+            Some(id) => self.generate_id(id)?,
+            None => self.entries.last_key_value().unwrap().0.clone(),
+        };
 
         Ok(self
             .entries

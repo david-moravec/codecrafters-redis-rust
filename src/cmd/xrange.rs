@@ -5,15 +5,32 @@ use bytes::Bytes;
 
 pub struct XRange {
     key: String,
-    start: StreamEntryIDOpt,
-    stop: StreamEntryIDOpt,
+    start: Option<StreamEntryIDOpt>,
+    stop: Option<StreamEntryIDOpt>,
 }
 
 impl XRange {
     pub fn parse(parse: &mut Parse) -> anyhow::Result<Self> {
         let key = parse.next_string()?;
-        let start = parse.next_stream_id()?;
-        let stop = parse.next_stream_id()?;
+        let start = {
+            let bytes = parse.next_bytes()?;
+
+            if bytes[0] == b'-' {
+                None
+            } else {
+                Some(StreamEntryIDOpt::try_from(bytes)?)
+            }
+        };
+
+        let stop = {
+            let bytes = parse.next_bytes()?;
+
+            if bytes[0] == b'+' {
+                None
+            } else {
+                Some(StreamEntryIDOpt::try_from(bytes)?)
+            }
+        };
 
         Ok(XRange { key, start, stop })
     }
