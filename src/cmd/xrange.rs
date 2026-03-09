@@ -1,4 +1,4 @@
-use crate::frame::Frame;
+use crate::frame::{Frame, ToFrame};
 use crate::parser::{Parse, StreamEntryIDOpt};
 
 use bytes::Bytes;
@@ -39,31 +39,9 @@ impl XRange {
         db: &crate::db::Db,
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {
-        let vec_id_vec_key_value = db.xrange(self.key, self.start, self.stop)?;
-        let frame = Frame::Array(Some(
-            vec_id_vec_key_value
-                .into_iter()
-                .map(|id_vec_key_value| {
-                    Frame::Array(Some({
-                        vec![
-                            Frame::BulkString(Bytes::from(format!("{:}", id_vec_key_value.0))),
-                            Frame::Array(Some(
-                                id_vec_key_value
-                                    .1
-                                    .into_iter()
-                                    .flat_map(|(key, value)| {
-                                        [Frame::BulkString(key), Frame::BulkString(value)]
-                                            .into_iter()
-                                    })
-                                    .collect(),
-                            )),
-                        ]
-                    }))
-                })
-                .collect(),
-        ));
+        let xrange = db.xrange(self.key, self.start, self.stop)?;
 
-        dst.write_frame(&frame).await?;
+        dst.write_frame(&xrange.to_frame()).await?;
         Ok(())
     }
 }

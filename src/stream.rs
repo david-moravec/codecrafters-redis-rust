@@ -5,6 +5,7 @@ use std::ops::Bound::Included;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
+use crate::frame::{Frame, ToFrame};
 use crate::parser::StreamEntryIDOpt;
 
 #[derive(Debug, Error)]
@@ -58,7 +59,51 @@ impl Display for StreamEntryID {
     }
 }
 
-pub type StreamEntry = Vec<(Bytes, Bytes)>;
+#[derive(Debug, Clone)]
+pub struct StreamEntry {
+    values: Vec<(Bytes, Bytes)>,
+}
+
+impl StreamEntry {
+    pub(crate) fn new(values: Vec<(Bytes, Bytes)>) -> Self {
+        Self { values }
+    }
+}
+
+impl ToFrame for StreamEntry {
+    fn to_frame(self) -> crate::frame::Frame {
+        Frame::Array(Some(
+            self.values
+                .into_iter()
+                .flat_map(|(key, value)| {
+                    [Frame::BulkString(key), Frame::BulkString(value)].into_iter()
+                })
+                .collect(),
+        ))
+    }
+}
+
+pub struct XRange {
+    pub(crate) entries: Vec<(StreamEntryID, StreamEntry)>,
+}
+
+impl ToFrame for XRange {
+    fn to_frame(self) -> Frame {
+        Frame::Array(Some(
+            self.entries
+                .into_iter()
+                .map(|(id, vec_entries)| {
+                    Frame::Array(Some({
+                        vec![
+                            Frame::BulkString(Bytes::from(format!("{:}", id))),
+                            vec_entries.to_frame(),
+                        ]
+                    }))
+                })
+                .collect(),
+        ))
+    }
+}
 
 pub struct Stream {
     entries: BTreeMap<StreamEntryID, StreamEntry>,
@@ -120,7 +165,7 @@ impl Stream {
         &self,
         start: Option<StreamEntryIDOpt>,
         end: Option<StreamEntryIDOpt>,
-    ) -> Result<Vec<(StreamEntryID, StreamEntry)>, StreamError> {
+    ) -> Result<XRange, StreamError> {
         let start_id = match start {
             Some(mut id) => {
                 if id.sequence.is_none() {
@@ -136,10 +181,12 @@ impl Stream {
             None => self.entries.last_key_value().unwrap().0.clone(),
         };
 
-        Ok(self
-            .entries
-            .range((Included(&start_id), Included(&end_id)))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect())
+        Ok(XRange {
+            entries: self
+                .entries
+                .range((Included(&start_id), Included(&end_id)))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        })
     }
 }

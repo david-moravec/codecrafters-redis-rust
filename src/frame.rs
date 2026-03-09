@@ -471,3 +471,7 @@ mod tests {
         }
     }
 }
+
+pub trait ToFrame {
+    fn to_frame(self) -> Frame;
+}

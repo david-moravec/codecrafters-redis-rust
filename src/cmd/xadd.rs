@@ -25,7 +25,11 @@ impl XAdd {
             }
         }
 
-        Ok(XAdd { key, id, values })
+        Ok(XAdd {
+            key,
+            id,
+            values: StreamEntry::new(values),
+        })
     }
     pub async fn apply(
         self,

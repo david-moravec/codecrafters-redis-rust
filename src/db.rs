@@ -11,8 +11,8 @@ use tokio::sync::oneshot;
 
 use std::sync::Arc;
 
-use crate::parser::StreamEntryIDOpt;
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError};
+use crate::{parser::StreamEntryIDOpt, stream::XRange};
 
 struct Expiry {
     now: Instant,
@@ -308,7 +308,7 @@ impl Db {
         key: String,
         start: Option<StreamEntryIDOpt>,
         end: Option<StreamEntryIDOpt>,
-    ) -> Result<Vec<(StreamEntryID, StreamEntry)>, StreamError> {
+    ) -> Result<XRange, StreamError> {
         let mut state = self.shared.state.lock().unwrap();
         let stream = state.streams.entry(key).or_insert(Stream::new());
 
