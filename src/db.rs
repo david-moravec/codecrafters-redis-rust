@@ -34,6 +34,11 @@ impl From<Duration> for Expiry {
     }
 }
 
+pub struct XReadWaiter {
+    id: StreamEntryIDOpt,
+    tx: oneshot::Sender<XRead>,
+}
+
 struct State {
     db: HashMap<String, Bytes>,
     list_db: HashMap<String, Vec<Bytes>>,
@@ -41,6 +46,8 @@ struct State {
     expiry: HashMap<String, Expiry>,
     blpop_waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
     blpop_waiters_ready: Vec<String>,
+    xread_waiters: HashMap<String, Vec<XReadWaiter>>,
+    xread_waiters_ready: Vec<String>,
 }
 
 impl State {
@@ -52,6 +59,8 @@ impl State {
             expiry: HashMap::new(),
             blpop_waiters: HashMap::new(),
             blpop_waiters_ready: vec![],
+            xread_waiters: HashMap::new(),
+            xread_waiters_ready: vec![],
         }
     }
 }
@@ -59,6 +68,7 @@ impl State {
 struct Shared {
     state: Mutex<State>,
     blpop_waiters_background_task: Notify,
+    xread_waiters_background_task: Notify,
 }
 
 impl Shared {
@@ -93,6 +103,44 @@ impl Shared {
             }
         }
     }
+
+    fn handle_xread_waiters(&self) {
+        let mut state = self.state.lock().unwrap();
+
+        let mut ready_waiters = vec![];
+        std::mem::swap(&mut state.xread_waiters_ready, &mut ready_waiters);
+
+        for key in ready_waiters {
+            let mut i = 0;
+
+            loop {
+                let waiter = match state.xread_waiters.get(&key).unwrap().get(i) {
+                    Some(w) => w,
+                    None => break,
+                };
+
+                let xrange = state
+                    .streams
+                    .get(&key)
+                    .unwrap()
+                    .xrange(Some(waiter.id), None, false)
+                    .unwrap();
+
+                if xrange.entries_len() == 0 {
+                    continue;
+                }
+
+                let xread = XRead::new(vec![(key.clone(), xrange)]);
+                let waiter = state.xread_waiters.get_mut(&key).unwrap().remove(i);
+
+                match waiter.tx.send(xread.clone()) {
+                    Ok(()) => {}
+                    Err(_) => {}
+                }
+                i += 1;
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -105,9 +153,11 @@ impl Db {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::new()),
             blpop_waiters_background_task: Notify::new(),
+            xread_waiters_background_task: Notify::new(),
         });
 
         tokio::spawn(blpop_waiters_background_process(shared.clone()));
+        tokio::spawn(xread_waiters_background_process(shared.clone()));
 
         Db { shared }
     }
@@ -295,16 +345,28 @@ impl Db {
         }
     }
 
+    fn notify_xread_waiters(&self, key: &str) {
+        let mut state = self.shared.state.lock().unwrap();
+
+        if state.xread_waiters.contains_key(key) {
+            state.xread_waiters_ready.push(key.to_string());
+            self.shared.xread_waiters_background_task.notify_one();
+        }
+    }
+
     pub fn xadd(
         &self,
         key: String,
         id_opt: StreamEntryIDOpt,
         values: StreamEntry,
     ) -> Result<StreamEntryID, StreamError> {
-        let mut state = self.shared.state.lock().unwrap();
-        let stream = state.streams.entry(key).or_insert(Stream::new());
-
-        stream.insert(id_opt, values)
+        let id = {
+            let mut state = self.shared.state.lock().unwrap();
+            let stream = state.streams.entry(key.clone()).or_insert(Stream::new());
+            stream.insert(id_opt, values)
+        };
+        self.notify_xread_waiters(&key);
+        id
     }
 
     pub fn xrange(
@@ -316,25 +378,46 @@ impl Db {
         let mut state = self.shared.state.lock().unwrap();
         let stream = state.streams.entry(key).or_insert(Stream::new());
 
-        stream.xrange(start, end)
+        stream.xrange(start, end, true)
     }
 
     pub fn xread(
         &self,
+        timeout: Option<u64>,
         keys: Vec<String>,
         ids: Vec<StreamEntryIDOpt>,
-    ) -> Result<XRead, StreamError> {
-        let state = self.shared.state.lock().unwrap();
+    ) -> Result<(Option<XRead>, Option<oneshot::Receiver<XRead>>), StreamError> {
+        let mut state = self.shared.state.lock().unwrap();
         let mut xread_entries = vec![];
+
+        let mut rx_opt = None;
 
         for (key, id) in keys.into_iter().zip(ids.into_iter()) {
             if state.streams.contains_key(&key) {
-                let xrange = state.streams.get(&key).unwrap().xrange(Some(id), None)?;
+                let xrange =
+                    state
+                        .streams
+                        .get(&key)
+                        .unwrap()
+                        .xrange(Some(id), None, timeout.is_none())?;
+
+                if xrange.entries_len() == 0 && timeout.is_some() {
+                    let (tx, rx) = oneshot::channel();
+                    state
+                        .xread_waiters
+                        .entry(key.clone())
+                        .or_insert(vec![])
+                        .push(XReadWaiter { id, tx });
+                    rx_opt = Some(rx);
+
+                    return Ok((None, rx_opt));
+                }
+
                 xread_entries.push((key, xrange));
             }
         }
 
-        Ok(XRead::new(xread_entries))
+        Ok((Some(XRead::new(xread_entries)), rx_opt))
     }
 }
 
@@ -342,5 +425,12 @@ async fn blpop_waiters_background_process(shared: Arc<Shared>) {
     loop {
         shared.blpop_waiters_background_task.notified().await;
         shared.handle_blpop_waiters();
+    }
+}
+
+async fn xread_waiters_background_process(shared: Arc<Shared>) {
+    loop {
+        shared.xread_waiters_background_task.notified().await;
+        shared.handle_xread_waiters();
     }
 }

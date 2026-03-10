@@ -20,7 +20,7 @@ pub enum ParseError {
 
 type ParseResult<T> = Result<T, ParseError>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct StreamEntryIDOpt {
     pub(crate) miliseconds: Option<u128>,
     pub(crate) sequence: Option<u64>,

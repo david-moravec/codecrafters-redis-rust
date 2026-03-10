@@ -1,9 +1,10 @@
 use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::ops::Bound::Included;
+use std::ops::Bound::{Excluded, Included};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+use tokio::sync::oneshot;
 
 use crate::frame::{Frame, ToFrame};
 use crate::parser::StreamEntryIDOpt;
@@ -79,8 +80,15 @@ impl ToFrame for StreamEntry {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct XRange {
     entries: Vec<(StreamEntryID, StreamEntry)>,
+}
+
+impl XRange {
+    pub(crate) fn entries_len(&self) -> usize {
+        self.entries.len()
+    }
 }
 
 impl ToFrame for XRange {
@@ -101,6 +109,7 @@ impl ToFrame for XRange {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct XRead {
     entries: Vec<(String, XRange)>,
 }
@@ -191,6 +200,7 @@ impl Stream {
         &self,
         start: Option<StreamEntryIDOpt>,
         end: Option<StreamEntryIDOpt>,
+        start_included: bool,
     ) -> Result<XRange, StreamError> {
         let start_id = match start {
             Some(mut id) => {
@@ -207,10 +217,18 @@ impl Stream {
             None => self.entries.last_key_value().unwrap().0.clone(),
         };
 
+        let start_bound = {
+            if start_included {
+                Included(&start_id)
+            } else {
+                Excluded(&start_id)
+            }
+        };
+
         Ok(XRange {
             entries: self
                 .entries
-                .range((Included(&start_id), Included(&end_id)))
+                .range((start_bound, Included(&end_id)))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
         })
