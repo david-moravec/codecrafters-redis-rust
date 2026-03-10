@@ -39,8 +39,8 @@ struct State {
     list_db: HashMap<String, Vec<Bytes>>,
     streams: HashMap<String, Stream>,
     expiry: HashMap<String, Expiry>,
-    waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
-    waiters_ready: Vec<String>,
+    blpop_waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
+    blpop_waiters_ready: Vec<String>,
 }
 
 impl State {
@@ -50,29 +50,29 @@ impl State {
             list_db: HashMap::new(),
             streams: HashMap::new(),
             expiry: HashMap::new(),
-            waiters: HashMap::new(),
-            waiters_ready: vec![],
+            blpop_waiters: HashMap::new(),
+            blpop_waiters_ready: vec![],
         }
     }
 }
 
 struct Shared {
     state: Mutex<State>,
-    waiters_background_task: Notify,
+    blpop_waiters_background_task: Notify,
 }
 
 impl Shared {
-    fn handle_ready_waiters(&self) {
+    fn handle_blpop_waiters(&self) {
         let mut state = self.state.lock().unwrap();
 
         let mut ready_waiters = vec![];
-        std::mem::swap(&mut state.waiters_ready, &mut ready_waiters);
+        std::mem::swap(&mut state.blpop_waiters_ready, &mut ready_waiters);
 
         for key in ready_waiters {
             loop {
                 let data = state.list_db.get(&key).unwrap()[0].clone();
 
-                match state.waiters.get_mut(&key) {
+                match state.blpop_waiters.get_mut(&key) {
                     Some(waiters) => {
                         if waiters.len() == 0 {
                             break;
@@ -104,10 +104,10 @@ impl Db {
     pub fn new() -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::new()),
-            waiters_background_task: Notify::new(),
+            blpop_waiters_background_task: Notify::new(),
         });
 
-        tokio::spawn(handle_ready_waiters(shared.clone()));
+        tokio::spawn(blpop_waiters_background_process(shared.clone()));
 
         Db { shared }
     }
@@ -137,17 +137,17 @@ impl Db {
         state.db.insert(key, value);
     }
 
-    fn check_for_ready_waiters(&self, key: &str) {
+    fn notify_blpop_waiters(&self, key: &str) {
         let mut state = self.shared.state.lock().unwrap();
 
-        if state.waiters.contains_key(key) {
-            state.waiters_ready.push(key.to_string());
-            self.shared.waiters_background_task.notify_one();
+        if state.blpop_waiters.contains_key(key) {
+            state.blpop_waiters_ready.push(key.to_string());
+            self.shared.blpop_waiters_background_task.notify_one();
         }
     }
 
     pub fn rpush(&self, key: String, values: Vec<Bytes>) -> usize {
-        self.check_for_ready_waiters(&key);
+        self.notify_blpop_waiters(&key);
         let mut state = self.shared.state.lock().unwrap();
 
         let list = state.list_db.entry(key).or_insert_with(|| vec![]);
@@ -160,7 +160,7 @@ impl Db {
     }
 
     pub fn lpush(&self, key: String, values: Vec<Bytes>) -> usize {
-        self.check_for_ready_waiters(&key);
+        self.notify_blpop_waiters(&key);
 
         let mut state = self.shared.state.lock().unwrap();
 
@@ -229,7 +229,11 @@ impl Db {
 
         let (tx, rx) = oneshot::channel();
 
-        state.waiters.entry(key).or_insert_with(|| vec![]).push(tx);
+        state
+            .blpop_waiters
+            .entry(key)
+            .or_insert_with(|| vec![])
+            .push(tx);
 
         (None, Some(rx))
     }
@@ -334,9 +338,9 @@ impl Db {
     }
 }
 
-async fn handle_ready_waiters(shared: Arc<Shared>) {
+async fn blpop_waiters_background_process(shared: Arc<Shared>) {
     loop {
-        shared.waiters_background_task.notified().await;
-        shared.handle_ready_waiters();
+        shared.blpop_waiters_background_task.notified().await;
+        shared.handle_blpop_waiters();
     }
 }
