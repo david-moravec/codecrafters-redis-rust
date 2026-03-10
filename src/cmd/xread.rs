@@ -8,10 +8,13 @@ pub struct XRead {
 
 impl XRead {
     pub fn parse(parse: &mut Parse) -> anyhow::Result<Self> {
+        // parse 'streams' option
+        parse.next_string()?;
+
         let mut bytes_vec = vec![];
 
-        while !parse.end_of_stream_reached() {
-            bytes_vec.push(parse.next_bytes()?);
+        while let Ok(bytes) = parse.next_bytes() {
+            bytes_vec.push(bytes);
             bytes_vec.push(parse.next_bytes()?);
         }
 
