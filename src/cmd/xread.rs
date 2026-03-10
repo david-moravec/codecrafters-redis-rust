@@ -3,6 +3,7 @@ use tokio::time::timeout;
 
 use crate::frame::{Frame, ToFrame};
 use crate::parser::{Parse, StreamEntryIDOpt};
+use std::any::Any;
 use std::time::Duration;
 
 pub struct XRead {
@@ -58,11 +59,15 @@ impl XRead {
         let xread = match db.xread(self.timeout, self.keys, self.ids)? {
             (Some(xread), None) => Some(xread),
             (None, Some(rx)) => {
-                let res = timeout(Duration::from_millis(self.timeout.unwrap()), rx).await;
+                if self.timeout.unwrap() == 0 {
+                    Some(rx.await?)
+                } else {
+                    let res = timeout(Duration::from_millis(self.timeout.unwrap()), rx).await;
 
-                match res {
-                    Ok(xread) => Some(xread?),
-                    Err(_) => None,
+                    match res {
+                        Ok(xread) => Some(xread?),
+                        Err(_) => None,
+                    }
                 }
             }
             _ => unreachable!(),
