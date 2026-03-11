@@ -2,14 +2,15 @@ use anyhow::anyhow;
 use tokio::time::timeout;
 
 use crate::frame::{Frame, ToFrame};
-use crate::parser::{Parse, StreamEntryIDOpt};
-use std::any::Any;
+use crate::parser::Parse;
 use std::time::Duration;
+
+use bytes::Bytes;
 
 pub struct XRead {
     timeout: Option<u64>,
     keys: Vec<String>,
-    ids: Vec<StreamEntryIDOpt>,
+    ids: Vec<Bytes>,
 }
 
 impl XRead {
@@ -29,21 +30,17 @@ impl XRead {
 
         while let Ok(bytes) = parse.next_bytes() {
             bytes_vec.push(bytes);
-            println!("{:?}", bytes_vec[bytes_vec.len() - 1]);
             bytes_vec.push(parse.next_bytes()?);
-            println!("{:?}", bytes_vec[bytes_vec.len() - 1]);
         }
 
         let bytes_vec_len = bytes_vec.len();
 
-        let keys: Vec<String> = bytes_vec[..bytes_vec_len / 2]
-            .iter()
+        let keys: Vec<String> = bytes_vec
+            .drain(0..bytes_vec_len / 2)
             .map(|b| String::from_utf8(b.to_vec()).unwrap())
             .collect();
-        let ids: Vec<StreamEntryIDOpt> = bytes_vec[bytes_vec_len / 2..bytes_vec_len]
-            .into_iter()
-            .map(|b| StreamEntryIDOpt::try_from(b.clone()).unwrap())
-            .collect();
+
+        let ids: Vec<Bytes> = bytes_vec;
 
         Ok(XRead {
             timeout: timeout_opt,

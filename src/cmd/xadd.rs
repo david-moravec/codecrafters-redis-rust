@@ -1,19 +1,19 @@
 use crate::frame::Frame;
-use crate::parser::{Parse, StreamEntryIDOpt};
+use crate::parser::Parse;
 use crate::stream::StreamEntry;
 
 use bytes::Bytes;
 
 pub struct XAdd {
     key: String,
-    id: StreamEntryIDOpt,
+    id: Bytes,
     values: StreamEntry,
 }
 
 impl XAdd {
     pub fn parse(parse: &mut Parse) -> anyhow::Result<Self> {
         let key = parse.next_string()?;
-        let id = parse.next_stream_id()?;
+        let id = parse.next_bytes()?;
 
         let mut values = vec![];
 

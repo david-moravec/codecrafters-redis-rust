@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use thiserror::Error;
 
-use std::{fmt::Display, str, vec};
+use std::{str, vec};
 
 #[derive(Debug)]
 pub(crate) struct Parse {
@@ -19,79 +19,6 @@ pub enum ParseError {
 }
 
 type ParseResult<T> = Result<T, ParseError>;
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct StreamEntryIDOpt {
-    pub(crate) miliseconds: Option<u128>,
-    pub(crate) sequence: Option<u64>,
-}
-
-impl StreamEntryIDOpt {
-    pub(crate) fn new(miliseconds: Option<u128>, sequence: Option<u64>) -> Self {
-        Self {
-            miliseconds,
-            sequence,
-        }
-    }
-}
-
-impl TryFrom<Bytes> for StreamEntryIDOpt {
-    type Error = ParseError;
-
-    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
-        use atoi::atoi;
-
-        if value.len() == 1 && value[0] == b'*' {
-            return Ok(Self::new(None, None));
-        }
-
-        let dash_index = value.iter().position(|b| *b == b'-').unwrap_or(value.len());
-
-        let miliseconds = {
-            if value[0] == b'*' {
-                None
-            } else {
-                Some(
-                    atoi::<u128>(&value[..dash_index]).ok_or(ParseError::Other(anyhow!(
-                        "protocol error; expected u64 bytes as miliseconds"
-                    )))?,
-                )
-            }
-        };
-        let sequence = {
-            if value.len() == dash_index {
-                None
-            } else if value[dash_index + 1] == b'*' {
-                None
-            } else {
-                Some(
-                    atoi::<u64>(&value[dash_index + 1..]).ok_or(ParseError::Other(anyhow!(
-                        "protocol error; expected u64 bytes as sequence"
-                    )))?,
-                )
-            }
-        };
-
-        Ok(Self::new(miliseconds, sequence))
-    }
-}
-
-impl Display for StreamEntryIDOpt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.miliseconds.is_some() {
-            write!(f, "{:}", self.miliseconds.unwrap())?;
-        } else {
-            write!(f, "*")?;
-        }
-        write!(f, "-")?;
-
-        if self.sequence.is_some() {
-            write!(f, "{:}", self.sequence.unwrap())
-        } else {
-            write!(f, "*")
-        }
-    }
-}
 
 impl Parse {
     pub(crate) fn new(frame: Frame) -> ParseResult<Self> {
@@ -186,10 +113,6 @@ impl Parse {
             )
             .into()),
         }
-    }
-
-    pub(crate) fn next_stream_id(&mut self) -> ParseResult<StreamEntryIDOpt> {
-        StreamEntryIDOpt::try_from(self.next_bytes()?)
     }
 
     pub(crate) fn next_i64(&mut self) -> ParseResult<i64> {

@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -7,7 +8,6 @@ use thiserror::Error;
 use tokio::sync::oneshot;
 
 use crate::frame::{Frame, ToFrame};
-use crate::parser::StreamEntryIDOpt;
 
 #[derive(Debug, Error)]
 pub enum StreamError {
@@ -33,20 +33,6 @@ impl StreamEntryID {
             miliseconds,
             sequence,
         }
-    }
-}
-
-impl TryFrom<StreamEntryIDOpt> for StreamEntryID {
-    type Error = StreamError;
-
-    fn try_from(value: StreamEntryIDOpt) -> Result<Self, Self::Error> {
-        let miliseconds = value.miliseconds.ok_or(StreamError::MissingValue)?;
-        let sequence = value.sequence.ok_or(StreamError::MissingValue)?;
-
-        Ok(Self {
-            miliseconds,
-            sequence,
-        })
     }
 }
 
@@ -147,39 +133,99 @@ impl Stream {
         }
     }
 
-    fn generate_id(&self, mut id_opt: StreamEntryIDOpt) -> Result<StreamEntryID, StreamError> {
-        if id_opt.miliseconds.is_none() {
-            id_opt.miliseconds = Some(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis(),
-            )
+    fn last_stream_entry_id(&self) -> StreamEntryID {
+        self.entries
+            .last_key_value()
+            .map(|(key, _)| *key)
+            .unwrap_or(StreamEntryID::new(0, 0))
+    }
+
+    fn get_next_sequence_number(&self, miliseconds: u128) -> u64 {
+        let last_stream_entry_id = self.last_stream_entry_id();
+
+        if miliseconds == last_stream_entry_id.miliseconds {
+            last_stream_entry_id.sequence + 1
+        } else {
+            0
         }
-        if id_opt.sequence.is_none() {
-            id_opt.sequence = match self.entries.last_key_value() {
-                Some((key, _)) if key.miliseconds == id_opt.miliseconds.unwrap() => {
-                    Some(key.sequence + 1)
+    }
+
+    fn generate_id(&self, id: &Bytes) -> Result<StreamEntryID, StreamError> {
+        if id.len() == 1 {
+            match id[0] {
+                b'*' | b'+' => {
+                    let miliseconds = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis();
+                    let sequence = self.get_next_sequence_number(miliseconds);
+
+                    return Ok(StreamEntryID::new(miliseconds, sequence));
                 }
-                _ => {
-                    if id_opt.miliseconds.unwrap() == 0 {
-                        Some(1)
-                    } else {
-                        Some(0)
-                    }
+                b'-' => return Ok(StreamEntryID::new(0, 0)),
+                c => {
+                    return Err(StreamError::Other(anyhow!(
+                        "protocol error; unknown ID special symbol {:}",
+                        c
+                    )));
                 }
             }
         }
 
-        StreamEntryID::try_from(id_opt)
+        let miliseconds = {
+            if id[0] == b'*' {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis()
+            } else {
+                use atoi::atoi;
+                let dash_index = id
+                    .iter()
+                    .position(|b| *b == b'-')
+                    .ok_or(StreamError::Other(anyhow!("Missing '-' in ID")))?;
+                atoi::<u128>(&id[..dash_index]).ok_or(StreamError::Other(anyhow!(
+                    "protocol error; expected u128 bytes for miliseconds time"
+                )))?
+            }
+        };
+
+        let sequence = {
+            let dash_index = id
+                .iter()
+                .position(|b| *b == b'-')
+                .ok_or(StreamError::Other(anyhow!("Missing '-' in ID")))?;
+
+            if id[dash_index + 1] == b'*' {
+                self.get_next_sequence_number(miliseconds)
+            } else {
+                use atoi::atoi;
+                atoi::<u64>(&id[dash_index + 1..]).ok_or(StreamError::Other(anyhow!(
+                    "protocol error; expected u64 bytes for sequence"
+                )))?
+            }
+        };
+
+        Ok(StreamEntryID::new(miliseconds, sequence))
     }
 
-    pub fn insert(
-        &mut self,
-        id_opt: StreamEntryIDOpt,
-        values: StreamEntry,
-    ) -> Result<StreamEntryID, StreamError> {
-        let id = self.generate_id(id_opt)?;
+    fn validate_new_entry_id(&self, entry_id: StreamEntryID) -> Result<StreamEntryID, StreamError> {
+        let last_key_value = self.entries.last_key_value();
+
+        if entry_id.miliseconds == 0 && entry_id.sequence == 0 {
+            return Err(StreamError::ZeroZeroID);
+        } else if let Some((key, _)) = last_key_value {
+            if key >= &entry_id {
+                return Err(StreamError::NotGreaterThanLastId);
+            }
+        }
+
+        Ok(entry_id)
+    }
+
+    pub fn insert(&mut self, id: Bytes, values: StreamEntry) -> Result<StreamEntryID, StreamError> {
+        let id = self.generate_id(&id)?;
+        self.validate_new_entry_id(id)?;
 
         if id.miliseconds == 0 && id.sequence == 0 {
             return Err(StreamError::ZeroZeroID);
@@ -196,39 +242,27 @@ impl Stream {
         Ok(id)
     }
 
-    pub fn xrange(
-        &self,
-        start: Option<StreamEntryIDOpt>,
-        end: Option<StreamEntryIDOpt>,
-        start_included: bool,
-    ) -> Result<XRange, StreamError> {
-        let start_id = match start {
-            Some(mut id) => {
-                if id.sequence.is_none() {
-                    id.sequence = Some(0)
-                }
-
-                StreamEntryID::try_from(id)?
-            }
-            None => StreamEntryID::new(0, 0),
-        };
-        let end_id = match end {
-            Some(id) => self.generate_id(id)?,
-            None => self.entries.last_key_value().unwrap().0.clone(),
-        };
-
-        let start_bound = {
-            if start_included {
-                Included(&start_id)
-            } else {
-                Excluded(&start_id)
-            }
-        };
+    pub fn xread(&self, start_id: &Bytes) -> Result<XRange, StreamError> {
+        let start_id = self.generate_id(start_id)?;
+        let end_id = self.last_stream_entry_id();
 
         Ok(XRange {
             entries: self
                 .entries
-                .range((start_bound, Included(&end_id)))
+                .range((Excluded(&start_id), Included(&end_id)))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        })
+    }
+
+    pub fn xrange(&self, start_id: &Bytes, end_id: &Bytes) -> Result<XRange, StreamError> {
+        let start_id = self.generate_id(start_id)?;
+        let end_id = self.generate_id(end_id)?;
+
+        Ok(XRange {
+            entries: self
+                .entries
+                .range((Included(&start_id), Included(&end_id)))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
         })

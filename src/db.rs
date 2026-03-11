@@ -11,7 +11,6 @@ use tokio::sync::oneshot;
 
 use std::sync::Arc;
 
-use crate::parser::StreamEntryIDOpt;
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError, XRange, XRead};
 
 struct Expiry {
@@ -35,7 +34,7 @@ impl From<Duration> for Expiry {
 }
 
 pub struct XReadWaiter {
-    id: StreamEntryIDOpt,
+    id: Bytes,
     tx: oneshot::Sender<XRead>,
 }
 
@@ -119,12 +118,7 @@ impl Shared {
                     None => break,
                 };
 
-                let xrange = state
-                    .streams
-                    .get(&key)
-                    .unwrap()
-                    .xrange(Some(waiter.id), None, false)
-                    .unwrap();
+                let xrange = state.streams.get(&key).unwrap().xread(&waiter.id).unwrap();
 
                 if xrange.entries_len() == 0 {
                     continue;
@@ -357,35 +351,30 @@ impl Db {
     pub fn xadd(
         &self,
         key: String,
-        id_opt: StreamEntryIDOpt,
+        id: Bytes,
         values: StreamEntry,
     ) -> Result<StreamEntryID, StreamError> {
         let id = {
             let mut state = self.shared.state.lock().unwrap();
             let stream = state.streams.entry(key.clone()).or_insert(Stream::new());
-            stream.insert(id_opt, values)
+            stream.insert(id, values)
         };
         self.notify_xread_waiters(&key);
         id
     }
 
-    pub fn xrange(
-        &self,
-        key: String,
-        start: Option<StreamEntryIDOpt>,
-        end: Option<StreamEntryIDOpt>,
-    ) -> Result<XRange, StreamError> {
+    pub fn xrange(&self, key: String, start: &Bytes, end: &Bytes) -> Result<XRange, StreamError> {
         let mut state = self.shared.state.lock().unwrap();
         let stream = state.streams.entry(key).or_insert(Stream::new());
 
-        stream.xrange(start, end, true)
+        stream.xrange(start, end)
     }
 
     pub fn xread(
         &self,
         timeout: Option<u64>,
         keys: Vec<String>,
-        ids: Vec<StreamEntryIDOpt>,
+        ids: Vec<Bytes>,
     ) -> Result<(Option<XRead>, Option<oneshot::Receiver<XRead>>), StreamError> {
         let mut state = self.shared.state.lock().unwrap();
         let mut xread_entries = vec![];
@@ -394,12 +383,7 @@ impl Db {
 
         for (key, id) in keys.into_iter().zip(ids.into_iter()) {
             if state.streams.contains_key(&key) {
-                let xrange =
-                    state
-                        .streams
-                        .get(&key)
-                        .unwrap()
-                        .xrange(Some(id), None, timeout.is_none())?;
+                let xrange = state.streams.get(&key).unwrap().xread(&id)?;
 
                 if xrange.entries_len() == 0 && timeout.is_some() {
                     let (tx, rx) = oneshot::channel();
