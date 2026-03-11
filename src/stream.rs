@@ -162,6 +162,7 @@ impl Stream {
 
                     return Ok(StreamEntryID::new(miliseconds, sequence));
                 }
+                b'$' => return Ok(self.last_stream_entry_id()),
                 b'-' => return Ok(StreamEntryID::new(0, 0)),
                 c => {
                     return Err(StreamError::Other(anyhow!(
