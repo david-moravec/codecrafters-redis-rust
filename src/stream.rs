@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::ops::Bound::{Excluded, Included};
+use std::ops::Bound::{self, Excluded, Included};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tokio::sync::oneshot;
@@ -150,7 +150,7 @@ impl Stream {
         }
     }
 
-    fn generate_id(&self, id: &Bytes) -> Result<StreamEntryID, StreamError> {
+    pub fn generate_id(&self, id: &Bytes) -> Result<StreamEntryID, StreamError> {
         if id.len() == 1 {
             match id[0] {
                 b'*' | b'+' => {
@@ -242,29 +242,30 @@ impl Stream {
         Ok(id)
     }
 
-    pub fn xread(&self, start_id: &Bytes) -> Result<XRange, StreamError> {
-        let start_id = self.generate_id(start_id)?;
-        let end_id = self.last_stream_entry_id();
-
-        Ok(XRange {
+    pub fn xrange_bounds(
+        &self,
+        start: Bound<&StreamEntryID>,
+        end: Bound<&StreamEntryID>,
+    ) -> XRange {
+        XRange {
             entries: self
                 .entries
-                .range((Excluded(&start_id), Included(&end_id)))
+                .range((start, end))
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
-        })
+        }
+    }
+
+    pub fn xread(&self, start_id: &StreamEntryID) -> Result<XRange, StreamError> {
+        let end_id = StreamEntryID::new(u128::MAX, u64::MAX);
+
+        Ok(self.xrange_bounds(Excluded(&start_id), Included(&end_id)))
     }
 
     pub fn xrange(&self, start_id: &Bytes, end_id: &Bytes) -> Result<XRange, StreamError> {
         let start_id = self.generate_id(start_id)?;
         let end_id = self.generate_id(end_id)?;
 
-        Ok(XRange {
-            entries: self
-                .entries
-                .range((Included(&start_id), Included(&end_id)))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        })
+        Ok(self.xrange_bounds(Included(&start_id), Included(&end_id)))
     }
 }

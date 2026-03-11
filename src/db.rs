@@ -34,7 +34,7 @@ impl From<Duration> for Expiry {
 }
 
 pub struct XReadWaiter {
-    id: Bytes,
+    id: StreamEntryID,
     tx: oneshot::Sender<XRead>,
 }
 
@@ -383,7 +383,9 @@ impl Db {
 
         for (key, id) in keys.into_iter().zip(ids.into_iter()) {
             if state.streams.contains_key(&key) {
-                let xrange = state.streams.get(&key).unwrap().xread(&id)?;
+                let stream = state.streams.get(&key).unwrap();
+                let entry_id = stream.generate_id(&id)?;
+                let xrange = stream.xread(&entry_id)?;
 
                 if xrange.entries_len() == 0 && timeout.is_some() {
                     let (tx, rx) = oneshot::channel();
@@ -391,7 +393,7 @@ impl Db {
                         .xread_waiters
                         .entry(key.clone())
                         .or_insert(vec![])
-                        .push(XReadWaiter { id, tx });
+                        .push(XReadWaiter { id: entry_id, tx });
                     rx_opt = Some(rx);
 
                     return Ok((None, rx_opt));
