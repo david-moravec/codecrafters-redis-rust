@@ -113,7 +113,9 @@ impl Shared {
             let mut i = 0;
 
             loop {
-                let waiter = match state.xread_waiters.get(&key).unwrap().get(i) {
+                i += 1;
+
+                let waiter = match state.xread_waiters.get(&key).unwrap().get(i - 1) {
                     Some(w) => w,
                     None => break,
                 };
@@ -125,13 +127,12 @@ impl Shared {
                 }
 
                 let xread = XRead::new(vec![(key.clone(), xrange)]);
-                let waiter = state.xread_waiters.get_mut(&key).unwrap().remove(i);
+                let waiter = state.xread_waiters.get_mut(&key).unwrap().remove(i - 1);
 
                 match waiter.tx.send(xread.clone()) {
                     Ok(()) => {}
                     Err(_) => {}
                 }
-                i += 1;
             }
         }
     }
