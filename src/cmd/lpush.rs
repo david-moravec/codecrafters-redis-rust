@@ -20,13 +20,8 @@ impl LPush {
 
         Ok(LPush { key, values })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let len = db.lpush(self.key, self.values);
-        dst.write_frame(&Frame::Integer(len as u64)).await?;
-        Ok(())
+        Ok(Frame::Integer(len as u64))
     }
 }

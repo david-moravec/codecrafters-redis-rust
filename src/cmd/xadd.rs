@@ -31,11 +31,7 @@ impl XAdd {
             values: StreamEntry::new(values),
         })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         use crate::stream::StreamError;
 
         let frame = match db.xadd(self.key, self.id, self.values) {
@@ -43,7 +39,6 @@ impl XAdd {
             Err(StreamError::Other(e)) => Err(e)?,
             Err(e) => Frame::Error(format!("{:}", e)),
         };
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

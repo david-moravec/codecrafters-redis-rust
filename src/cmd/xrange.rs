@@ -1,4 +1,4 @@
-use crate::frame::ToFrame;
+use crate::frame::{Frame, ToFrame};
 use crate::parser::Parse;
 
 use bytes::Bytes;
@@ -17,14 +17,9 @@ impl XRange {
 
         Ok(XRange { key, start, stop })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let xrange = db.xrange(self.key, &self.start, &self.stop)?;
 
-        dst.write_frame(&xrange.to_frame()).await?;
-        Ok(())
+        Ok(xrange.to_frame())
     }
 }

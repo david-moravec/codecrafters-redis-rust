@@ -15,11 +15,7 @@ impl LPop {
 
         Ok(LPop { key, start, stop })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let start_stop_is_none = self.start.is_none() && self.stop.is_none();
 
         let values = db.lpop(&self.key, self.start, self.stop);
@@ -40,7 +36,6 @@ impl LPop {
             None => Frame::NullBulkString,
         };
 
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

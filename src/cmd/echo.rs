@@ -13,13 +13,8 @@ impl Echo {
             line: parse.next_string()?,
         })
     }
-    pub async fn apply(
-        self,
-        _: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, _: &crate::db::Db) -> anyhow::Result<Frame> {
         let frame = Frame::BulkString(Bytes::copy_from_slice(self.line.as_bytes()));
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

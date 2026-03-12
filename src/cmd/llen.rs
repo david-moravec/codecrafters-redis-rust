@@ -1,8 +1,6 @@
 use crate::frame::Frame;
 use crate::parser::Parse;
 
-use bytes::Bytes;
-
 pub struct LLen {
     key: String,
 }
@@ -13,13 +11,7 @@ impl LLen {
 
         Ok(LLen { key })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
-        let len = db.llen(self.key);
-        dst.write_frame(&Frame::Integer(len as u64)).await?;
-        Ok(())
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
+        Ok(Frame::Integer(db.llen(self.key) as u64))
     }
 }

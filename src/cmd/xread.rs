@@ -48,11 +48,7 @@ impl XRead {
             ids,
         })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub async fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let xread = match db.xread(self.timeout, self.keys, self.ids)? {
             (Some(xread), None) => Some(xread),
             (None, Some(rx)) => {
@@ -75,7 +71,6 @@ impl XRead {
             None => Frame::Array(None),
         };
 
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

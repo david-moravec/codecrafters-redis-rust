@@ -92,34 +92,42 @@ impl Command {
         Ok(command)
     }
 
+    pub async fn apply_atomic(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
+        match self {
+            Self::Ping(cmd) => cmd.apply(db),
+            Self::Get(cmd) => cmd.apply(db),
+            Self::Echo(cmd) => cmd.apply(db),
+            Self::Set(cmd) => cmd.apply(db),
+            Self::Incr(cmd) => cmd.apply(db),
+            Self::RPush(cmd) => cmd.apply(db),
+            Self::LRange(cmd) => cmd.apply(db),
+            Self::LPush(cmd) => cmd.apply(db),
+            Self::LLen(cmd) => cmd.apply(db),
+            Self::LPop(cmd) => cmd.apply(db),
+            Self::BLPop(cmd) => cmd.apply(db).await,
+            Self::Type(cmd) => cmd.apply(db),
+            Self::XAdd(cmd) => cmd.apply(db),
+            Self::XRange(cmd) => cmd.apply(db),
+            Self::XRead(cmd) => cmd.apply(db).await,
+            Self::Multi(cmd) => cmd.apply(dst),
+            Self::Exec(_) => unreachable!(),
+        }
+    }
+
     pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<()> {
-        if let Self::Exec(exec) = self {
-            exec.apply(db, dst).await
-        } else {
-            if dst.is_multi {
-                dst.multi_queue.push_back(self);
-                dst.write_frame(&Frame::Simple("QUEUED".to_string())).await
+        let frame = {
+            if let Self::Exec(exec) = self {
+                exec.apply(db, dst).await?
             } else {
-                match self {
-                    Self::Ping(cmd) => cmd.apply(db, dst).await,
-                    Self::Get(cmd) => cmd.apply(db, dst).await,
-                    Self::Echo(cmd) => cmd.apply(db, dst).await,
-                    Self::Set(cmd) => cmd.apply(db, dst).await,
-                    Self::Incr(cmd) => cmd.apply(db, dst).await,
-                    Self::RPush(cmd) => cmd.apply(db, dst).await,
-                    Self::LRange(cmd) => cmd.apply(db, dst).await,
-                    Self::LPush(cmd) => cmd.apply(db, dst).await,
-                    Self::LLen(cmd) => cmd.apply(db, dst).await,
-                    Self::LPop(cmd) => cmd.apply(db, dst).await,
-                    Self::BLPop(cmd) => cmd.apply(db, dst).await,
-                    Self::Type(cmd) => cmd.apply(db, dst).await,
-                    Self::XAdd(cmd) => cmd.apply(db, dst).await,
-                    Self::XRange(cmd) => cmd.apply(db, dst).await,
-                    Self::XRead(cmd) => cmd.apply(db, dst).await,
-                    Self::Multi(cmd) => cmd.apply(db, dst).await,
-                    Self::Exec(_) => unreachable!(),
+                if dst.is_multi {
+                    dst.multi_queue.push_back(self);
+                    Frame::Simple("QUEUED".to_string())
+                } else {
+                    self.apply_atomic(db, dst).await?
                 }
             }
-        }
+        };
+
+        dst.write_frame(&frame).await
     }
 }

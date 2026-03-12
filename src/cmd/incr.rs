@@ -10,16 +10,11 @@ impl Incr {
         let key = parse.next_string()?;
         Ok(Incr { key })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let frame = match db.incr(self.key) {
             Ok(number) => Frame::Integer(number),
             Err(err) => Frame::Error(format!("{}", err)),
         };
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

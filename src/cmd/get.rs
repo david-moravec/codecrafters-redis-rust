@@ -11,18 +11,13 @@ impl Get {
             key: parse.next_string()?,
         })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let frame = if let Some(bytes) = db.get(&self.key) {
             Frame::BulkString(bytes)
         } else {
             Frame::NullBulkString
         };
 
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

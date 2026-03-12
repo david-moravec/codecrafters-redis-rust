@@ -15,11 +15,7 @@ impl LRange {
 
         Ok(LRange { key, start, stop })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let values = db.lrange(&self.key, self.start, self.stop);
 
         let frame = Frame::Array(Some(
@@ -29,7 +25,6 @@ impl LRange {
                 .collect(),
         ));
 
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

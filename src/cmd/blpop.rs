@@ -17,11 +17,7 @@ impl BLPop {
 
         Ok(BLPop { key, timeout })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub async fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let (value, rx) = db.blpop(self.key.clone());
 
         let value = match (value, rx) {
@@ -48,7 +44,6 @@ impl BLPop {
             None => Frame::Array(None),
         };
 
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

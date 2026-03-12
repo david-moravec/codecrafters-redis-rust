@@ -11,16 +11,11 @@ impl Type {
 
         Ok(Type { key })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let type_str = db.value_type(&self.key);
 
         let frame = Frame::Simple(type_str);
 
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

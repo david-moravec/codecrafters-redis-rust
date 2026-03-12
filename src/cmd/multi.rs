@@ -7,14 +7,9 @@ impl Multi {
     pub fn parse(_: &mut Parse) -> anyhow::Result<Self> {
         Ok(Multi {})
     }
-    pub async fn apply(
-        self,
-        _: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, dst: &mut crate::connection::Connection) -> anyhow::Result<Frame> {
         dst.is_multi = true;
         let frame = Frame::Simple("OK".to_string());
-        dst.write_frame(&frame).await?;
-        Ok(())
+        Ok(frame)
     }
 }

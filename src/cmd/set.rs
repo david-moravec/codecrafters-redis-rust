@@ -38,13 +38,8 @@ impl Set {
 
         Ok(Set { key, value, expire })
     }
-    pub async fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         db.set(self.key, self.value, self.expire);
-        dst.write_frame(&Frame::Simple("OK".to_string())).await?;
-        Ok(())
+        Ok(Frame::Simple("OK".to_string()))
     }
 }
