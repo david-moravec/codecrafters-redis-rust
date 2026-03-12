@@ -1,6 +1,7 @@
 mod blpop;
 mod echo;
 mod get;
+mod incr;
 mod llen;
 mod lpop;
 mod lpush;
@@ -22,6 +23,7 @@ use anyhow::{Result, anyhow};
 use blpop::BLPop;
 use echo::Echo;
 use get::Get;
+use incr::Incr;
 use llen::LLen;
 use lpop::LPop;
 use lpush::LPush;
@@ -39,6 +41,7 @@ pub enum Command {
     Get(Get),
     Echo(Echo),
     Set(Set),
+    Incr(Incr),
     RPush(RPush),
     LRange(LRange),
     LPush(LPush),
@@ -62,6 +65,7 @@ impl Command {
             "get" => Command::Get(Get::parse(&mut parse)?),
             "echo" => Command::Echo(Echo::parse(&mut parse)?),
             "set" => Command::Set(Set::parse(&mut parse)?),
+            "incr" => Command::Incr(Incr::parse(&mut parse)?),
             "rpush" => Command::RPush(RPush::parse(&mut parse)?),
             "lrange" => Command::LRange(LRange::parse(&mut parse)?),
             "lpush" => Command::LPush(LPush::parse(&mut parse)?),
@@ -86,6 +90,7 @@ impl Command {
             Self::Get(cmd) => cmd.apply(db, dst).await,
             Self::Echo(cmd) => cmd.apply(db, dst).await,
             Self::Set(cmd) => cmd.apply(db, dst).await,
+            Self::Incr(cmd) => cmd.apply(db, dst).await,
             Self::RPush(cmd) => cmd.apply(db, dst).await,
             Self::LRange(cmd) => cmd.apply(db, dst).await,
             Self::LPush(cmd) => cmd.apply(db, dst).await,

@@ -12,6 +12,7 @@ use tokio::sync::oneshot;
 use std::sync::Arc;
 
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError, XRange, XRead};
+use thiserror::Error;
 
 struct Expiry {
     now: Instant,
@@ -32,6 +33,16 @@ impl From<Duration> for Expiry {
         }
     }
 }
+
+#[derive(Debug, Error)]
+pub enum CommandError {
+    #[error("ERR value is not an integer or out of range")]
+    NotANumber,
+    #[error("{0}")]
+    StreamError(#[from] StreamError),
+}
+
+pub type CommandResult<T> = Result<T, CommandError>;
 
 pub struct XReadWaiter {
     id: StreamEntryID,
@@ -180,6 +191,20 @@ impl Db {
         }
 
         state.db.insert(key, value);
+    }
+
+    pub fn incr(&self, key: String) -> CommandResult<u64> {
+        let mut state = self.shared.state.lock().unwrap();
+
+        let entry = state.db.entry(key).or_insert(Bytes::from("0"));
+
+        use atoi::atoi;
+
+        let mut number = atoi::<u64>(entry).ok_or(CommandError::NotANumber)?;
+        number += 1;
+        *entry = Bytes::from(format!("{:}", number));
+
+        Ok(number)
     }
 
     fn notify_blpop_waiters(&self, key: &str) {
