@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use std::sync::Arc;
 use std::{
     cmp::max,
     collections::HashMap,
@@ -6,10 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Notify;
-
 use tokio::sync::oneshot;
-
-use std::sync::Arc;
 
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError, XRange, XRead};
 use thiserror::Error;
