@@ -14,23 +14,21 @@ impl Exec {
         self,
         db: &crate::db::Db,
         dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Frame> {
+        let frame: Frame;
         if !dst.is_multi {
-            let frame = Frame::Error("ERR EXEC without MULTI".to_string());
-            dst.write_frame(&frame).await?;
+            frame = Frame::Error("ERR EXEC without MULTI".to_string());
         } else {
             dst.is_multi = false;
-
             let command_queue: Vec<Command> = dst.multi_queue.drain(..).collect();
-
-            if command_queue.len() == 0 {
-                dst.write_frame(&Frame::Array(Some(vec![]))).await?;
-            }
+            let mut responses: Vec<Frame> = vec![];
 
             for cmd in command_queue {
-                Box::pin(cmd.apply(db, dst)).await?;
+                responses.push(Box::pin(cmd.apply_atomic(db, dst)).await?);
             }
+
+            frame = Frame::Array(Some(responses))
         }
-        Ok(())
+        Ok(frame)
     }
 }
