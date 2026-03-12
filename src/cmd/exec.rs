@@ -1,5 +1,8 @@
+use crate::cmd::Command;
 use crate::frame::Frame;
 use crate::parser::Parse;
+
+use std::boxed::Box;
 
 pub struct Exec {}
 
@@ -9,17 +12,25 @@ impl Exec {
     }
     pub async fn apply(
         self,
-        _: &crate::db::Db,
+        db: &crate::db::Db,
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {
-        let frame: Frame;
         if !dst.is_multi {
-            frame = Frame::Error("ERR EXEC without MULTI".to_string())
+            let frame = Frame::Error("ERR EXEC without MULTI".to_string());
+            dst.write_frame(&frame).await?;
         } else {
             dst.is_multi = false;
-            frame = Frame::Error("EXEC not implemented yet".to_string());
+
+            let command_queue: Vec<Command> = dst.multi_queue.drain(..).collect();
+
+            if command_queue.len() == 0 {
+                dst.write_frame(&Frame::Array(Some(vec![]))).await?;
+            }
+
+            for cmd in command_queue {
+                Box::pin(cmd.apply(db, dst)).await?;
+            }
         }
-        dst.write_frame(&frame).await?;
         Ok(())
     }
 }

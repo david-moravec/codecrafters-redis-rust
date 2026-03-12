@@ -1,17 +1,19 @@
 use anyhow::{Result, anyhow};
 use bytes::{Buf, BytesMut};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
 };
 
+use crate::cmd::Command;
 use crate::frame::{Frame, FrameError};
 
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
+    pub(crate) multi_queue: VecDeque<Command>,
     pub(crate) is_multi: bool,
 }
 
@@ -20,6 +22,7 @@ impl Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4096),
+            multi_queue: VecDeque::new(),
             is_multi: false,
         }
     }
