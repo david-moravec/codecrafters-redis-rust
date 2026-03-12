@@ -1,5 +1,6 @@
 mod blpop;
 mod echo;
+mod exec;
 mod get;
 mod incr;
 mod llen;
@@ -23,6 +24,7 @@ use crate::parser::Parse;
 use anyhow::{Result, anyhow};
 use blpop::BLPop;
 use echo::Echo;
+use exec::Exec;
 use get::Get;
 use incr::Incr;
 use llen::LLen;
@@ -55,6 +57,7 @@ pub enum Command {
     XRange(XRange),
     XRead(XRead),
     Multi(Multi),
+    Exec(Exec),
 }
 
 impl Command {
@@ -80,6 +83,7 @@ impl Command {
             "xrange" => Command::XRange(XRange::parse(&mut parse)?),
             "xread" => Command::XRead(XRead::parse(&mut parse)?),
             "multi" => Command::Multi(Multi::parse(&mut parse)?),
+            "exec" => Command::Exec(Exec::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -106,6 +110,7 @@ impl Command {
             Self::XRange(cmd) => cmd.apply(db, dst).await,
             Self::XRead(cmd) => cmd.apply(db, dst).await,
             Self::Multi(cmd) => cmd.apply(db, dst).await,
+            Self::Exec(cmd) => cmd.apply(db, dst).await,
         }
     }
 }

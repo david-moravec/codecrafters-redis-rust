@@ -1,19 +1,24 @@
 use crate::frame::Frame;
 use crate::parser::Parse;
 
-pub struct Multi {}
+pub struct Exec {}
 
-impl Multi {
+impl Exec {
     pub fn parse(_: &mut Parse) -> anyhow::Result<Self> {
-        Ok(Multi {})
+        Ok(Exec {})
     }
     pub async fn apply(
         self,
         _: &crate::db::Db,
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<()> {
-        dst.is_multi = true;
-        let frame = Frame::Simple("OK".to_string());
+        let frame: Frame;
+        if !dst.is_multi {
+            frame = Frame::Error("ERR EXEC without MULTI".to_string())
+        } else {
+            dst.is_multi = false;
+            frame = Frame::Error("EXEC not implemented yet".to_string());
+        }
         dst.write_frame(&frame).await?;
         Ok(())
     }

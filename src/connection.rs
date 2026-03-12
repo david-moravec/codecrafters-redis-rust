@@ -12,6 +12,7 @@ use crate::frame::{Frame, FrameError};
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
+    pub(crate) is_multi: bool,
 }
 
 impl Connection {
@@ -19,6 +20,7 @@ impl Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4096),
+            is_multi: false,
         }
     }
     pub async fn read_frame(&mut self) -> Result<Option<Frame>> {
