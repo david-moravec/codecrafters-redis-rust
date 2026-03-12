@@ -6,6 +6,7 @@ mod llen;
 mod lpop;
 mod lpush;
 mod lrange;
+mod multi;
 mod ping;
 mod rpush;
 mod set;
@@ -28,6 +29,7 @@ use llen::LLen;
 use lpop::LPop;
 use lpush::LPush;
 use lrange::LRange;
+use multi::Multi;
 use ping::Ping;
 use rpush::RPush;
 use set::Set;
@@ -52,6 +54,7 @@ pub enum Command {
     XAdd(XAdd),
     XRange(XRange),
     XRead(XRead),
+    Multi(Multi),
 }
 
 impl Command {
@@ -76,6 +79,7 @@ impl Command {
             "xadd" => Command::XAdd(XAdd::parse(&mut parse)?),
             "xrange" => Command::XRange(XRange::parse(&mut parse)?),
             "xread" => Command::XRead(XRead::parse(&mut parse)?),
+            "multi" => Command::Multi(Multi::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -101,6 +105,7 @@ impl Command {
             Self::XAdd(cmd) => cmd.apply(db, dst).await,
             Self::XRange(cmd) => cmd.apply(db, dst).await,
             Self::XRead(cmd) => cmd.apply(db, dst).await,
+            Self::Multi(cmd) => cmd.apply(db, dst).await,
         }
     }
 }
