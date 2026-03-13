@@ -14,7 +14,7 @@ use bytes::Bytes;
 
 impl ToFrame for crate::server::Info {
     fn to_frame(&self) -> Frame {
-        Frame::BulkString(Bytes::from("role:master"))
+        Frame::BulkString(Bytes::from(format!("role:{}", self.role)))
     }
 }
 

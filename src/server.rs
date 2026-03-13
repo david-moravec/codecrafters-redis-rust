@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -11,11 +12,20 @@ use crate::connection::Connection;
 
 pub enum Role {
     Master,
-    Replica,
+    Slave,
+}
+
+impl Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Master => write!(f, "master"),
+            Self::Slave => write!(f, "slave"),
+        }
+    }
 }
 
 pub struct Info {
-    role: Role,
+    pub role: Role,
 }
 
 pub struct Server {
