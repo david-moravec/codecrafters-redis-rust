@@ -25,13 +25,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{:}", args.port))
         .await
         .unwrap();
-    let server = Server::new({
-        if args.replicaof.is_some() {
-            server::Role::Slave
-        } else {
-            server::Role::Master
-        }
-    });
+    let server = Server::new(args.replicaof);
     if let Err(e) = server.run(listener).await {
         eprintln!("When running server following error occured: \n{}", e);
     };
