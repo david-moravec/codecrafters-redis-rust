@@ -2,28 +2,38 @@ use anyhow::{Result, anyhow};
 use bytes::{Buf, BytesMut};
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
+use std::sync::Arc;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
 };
 
 use crate::cmd::Command;
-use crate::frame::{Frame, FrameError};
+use crate::frame::{Frame, FrameError, ToFrame};
+use bytes::Bytes;
+
+impl ToFrame for crate::server::Info {
+    fn to_frame(&self) -> Frame {
+        Frame::BulkString(Bytes::from("role:master"))
+    }
+}
 
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
     pub(crate) multi_queue: VecDeque<Command>,
     pub(crate) is_multi: bool,
+    server_info: Arc<crate::server::Info>,
 }
 
 impl Connection {
-    pub fn new(stream: TcpStream) -> Connection {
+    pub fn new(stream: TcpStream, info: Arc<crate::server::Info>) -> Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4096),
             multi_queue: VecDeque::new(),
             is_multi: false,
+            server_info: info,
         }
     }
     pub async fn read_frame(&mut self) -> Result<Option<Frame>> {
@@ -85,6 +95,10 @@ impl Connection {
             Err(FrameError::Incomplete) => Ok(None),
             Err(FrameError::Other(err)) => Err(err),
         }
+    }
+
+    pub fn info_to_frame(&self) -> Frame {
+        self.server_info.to_frame()
     }
 
     async fn write_value(&mut self, frame: &Frame) -> Result<()> {

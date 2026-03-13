@@ -24,7 +24,7 @@ impl Exec {
             let mut responses: Vec<Frame> = vec![];
 
             for cmd in command_queue {
-                responses.push(Box::pin(cmd.apply_atomic(db, dst)).await?);
+                responses.push(Box::pin(cmd.apply_queueble(db, dst)).await?);
             }
 
             frame = Frame::Array(Some(responses))

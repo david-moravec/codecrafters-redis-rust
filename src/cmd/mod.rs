@@ -4,6 +4,7 @@ mod echo;
 mod exec;
 mod get;
 mod incr;
+mod info;
 mod llen;
 mod lpop;
 mod lpush;
@@ -21,6 +22,7 @@ use crate::connection::Connection;
 use crate::db::Db;
 use crate::frame::Frame;
 use crate::parser::Parse;
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use blpop::BLPop;
@@ -29,6 +31,7 @@ use echo::Echo;
 use exec::Exec;
 use get::Get;
 use incr::Incr;
+use info::Info;
 use llen::LLen;
 use lpop::LPop;
 use lpush::LPush;
@@ -61,6 +64,7 @@ pub enum Command {
     Multi(Multi),
     Exec(Exec),
     Discard(Discard),
+    Info(Info),
 }
 
 impl Command {
@@ -88,6 +92,7 @@ impl Command {
             "multi" => Command::Multi(Multi::parse(&mut parse)?),
             "exec" => Command::Exec(Exec::parse(&mut parse)?),
             "discard" => Command::Discard(Discard::parse(&mut parse)?),
+            "info" => Command::Info(Info::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -96,7 +101,7 @@ impl Command {
         Ok(command)
     }
 
-    pub async fn apply_atomic(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
+    pub async fn apply_queueble(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
         match self {
             Self::Ping(cmd) => cmd.apply(db),
             Self::Get(cmd) => cmd.apply(db),
@@ -113,7 +118,8 @@ impl Command {
             Self::XAdd(cmd) => cmd.apply(db),
             Self::XRange(cmd) => cmd.apply(db),
             Self::XRead(cmd) => cmd.apply(db).await,
-            Self::Multi(cmd) => cmd.apply(dst),
+            Self::Info(cmd) => cmd.apply(dst).await,
+            Self::Multi(_) => unreachable!(),
             Self::Discard(_) => unreachable!(),
             Self::Exec(_) => unreachable!(),
         }
@@ -121,16 +127,17 @@ impl Command {
 
     pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<()> {
         let frame = {
-            if let Self::Exec(exec) = self {
-                exec.apply(db, dst).await?
-            } else if let Self::Discard(discard) = self {
-                discard.apply(dst)?
-            } else {
-                if dst.is_multi {
-                    dst.multi_queue.push_back(self);
-                    Frame::Simple("QUEUED".to_string())
-                } else {
-                    self.apply_atomic(db, dst).await?
+            match self {
+                Self::Exec(cmd) => cmd.apply(db, dst).await?,
+                Self::Discard(cmd) => cmd.apply(dst)?,
+                Self::Multi(cmd) => cmd.apply(dst)?,
+                _ => {
+                    if dst.is_multi {
+                        dst.multi_queue.push_back(self);
+                        Frame::Simple("QUEUED".to_string())
+                    } else {
+                        self.apply_queueble(db, dst).await?
+                    }
                 }
             }
         };

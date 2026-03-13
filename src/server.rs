@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use tokio::net::TcpListener;
 
@@ -7,19 +9,32 @@ use tokio::net::TcpStream;
 use crate::cmd::Command;
 use crate::connection::Connection;
 
+pub enum Role {
+    Master,
+    Replica,
+}
+
+pub struct Info {
+    role: Role,
+}
+
 pub struct Server {
     db: Db,
+    info: Arc<Info>,
 }
 
 impl Server {
-    pub fn new() -> Self {
-        Self { db: Db::new() }
+    pub fn new(role: Role) -> Self {
+        Self {
+            db: Db::new(),
+            info: Arc::new(Info { role }),
+        }
     }
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
         loop {
             let socket = listener.accept().await?;
-            let mut handler = Handle::new(self.db.clone(), socket.0);
+            let mut handler = Handle::new(self.db.clone(), socket.0, self.info.clone());
 
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
@@ -36,10 +51,10 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub fn new(db: Db, stream: TcpStream) -> Self {
+    pub fn new(db: Db, stream: TcpStream, info: Arc<Info>) -> Self {
         Handle {
             db,
-            connection: Connection::new(stream),
+            connection: Connection::new(stream, info),
         }
     }
 
@@ -71,7 +86,7 @@ mod tests {
     use std::{net::SocketAddr, time::Duration};
 
     pub async fn run(listener: TcpListener) {
-        let server = Server::new();
+        let server = Server::new(Role::Master);
 
         tokio::spawn(async move {
             if let Err(err) = server.run(listener).await {
