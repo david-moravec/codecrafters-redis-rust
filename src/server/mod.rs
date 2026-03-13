@@ -9,26 +9,18 @@ use tokio::net::TcpStream;
 
 use crate::cmd::Command;
 use crate::connection::Connection;
-use info::{Info, Role};
+use info::ServerInfo;
 
 pub struct Server {
     db: Db,
-    info: Arc<Info>,
+    info: Arc<ServerInfo>,
 }
 
 impl Server {
     pub fn new(replica_of: Option<String>) -> Self {
         Self {
             db: Db::new(),
-            info: Arc::new(Info {
-                role: {
-                    if replica_of.is_some() {
-                        Role::Slave
-                    } else {
-                        Role::Master
-                    }
-                },
-            }),
+            info: Arc::new(ServerInfo::new(replica_of)),
         }
     }
 
@@ -52,7 +44,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub fn new(db: Db, stream: TcpStream, info: Arc<Info>) -> Self {
+    pub fn new(db: Db, stream: TcpStream, info: Arc<ServerInfo>) -> Self {
         Handle {
             db,
             connection: Connection::new(stream, info),

@@ -10,25 +10,19 @@ use tokio::{
 
 use crate::cmd::Command;
 use crate::frame::{Frame, FrameError, ToFrame};
-use crate::server::info::Info;
+use crate::server::info::ServerInfo;
 use bytes::Bytes;
-
-impl ToFrame for Info {
-    fn to_frame(&self) -> Frame {
-        Frame::BulkString(Bytes::from(format!("role:{}", self.role)))
-    }
-}
 
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
     pub(crate) multi_queue: VecDeque<Command>,
     pub(crate) is_multi: bool,
-    server_info: Arc<Info>,
+    server_info: Arc<ServerInfo>,
 }
 
 impl Connection {
-    pub fn new(stream: TcpStream, info: Arc<Info>) -> Connection {
+    pub fn new(stream: TcpStream, info: Arc<ServerInfo>) -> Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4096),
@@ -99,7 +93,7 @@ impl Connection {
     }
 
     pub fn info_to_frame(&self) -> Frame {
-        self.server_info.to_frame()
+        self.server_info.replication.to_frame()
     }
 
     async fn write_value(&mut self, frame: &Frame) -> Result<()> {
