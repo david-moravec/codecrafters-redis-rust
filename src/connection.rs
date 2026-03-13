@@ -11,7 +11,6 @@ use tokio::{
 use crate::cmd::Command;
 use crate::frame::{Frame, FrameError, ToFrame};
 use crate::server::info::ServerInfo;
-use bytes::Bytes;
 
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,

@@ -5,11 +5,27 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 
 use crate::db::Db;
+use bytes::Bytes;
 use tokio::net::TcpStream;
 
 use crate::cmd::Command;
 use crate::connection::Connection;
-use info::ServerInfo;
+use info::{Role, ServerInfo};
+
+async fn check_for_replication(info: Arc<ServerInfo>) -> Result<()> {
+    use crate::frame::Frame;
+
+    if let Role::Slave(ref addr) = info.replication.role {
+        let mut connection = Connection::new(TcpStream::connect(addr).await?, info);
+
+        connection
+            .write_frame(&Frame::Array(Some(vec![Frame::BulkString(Bytes::from(
+                "PING",
+            ))])))
+            .await?;
+    }
+    Ok(())
+}
 
 pub struct Server {
     db: Db,
@@ -18,13 +34,17 @@ pub struct Server {
 
 impl Server {
     pub fn new(replica_of: Option<String>) -> Self {
+        let info = ServerInfo::new(replica_of);
+
         Self {
             db: Db::new(),
-            info: Arc::new(ServerInfo::new(replica_of)),
+            info: Arc::new(info),
         }
     }
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
+        check_for_replication(self.info.clone()).await?;
+
         loop {
             let socket = listener.accept().await?;
             let mut handler = Handle::new(self.db.clone(), socket.0, self.info.clone());
