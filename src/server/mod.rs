@@ -1,7 +1,7 @@
 pub mod info;
 
 use anyhow::Result;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
 
 use crate::db::Db;
@@ -12,7 +12,7 @@ use crate::cmd::Command;
 use crate::connection::Connection;
 use info::{Role, ServerInfo};
 
-async fn check_for_replication(info: Arc<ServerInfo>) -> Result<()> {
+async fn check_for_replication(info: Arc<ServerInfo>, local_addres: SocketAddr) -> Result<()> {
     use crate::frame::Frame;
 
     if let Role::Slave(ref addr) = info.replication.role {
@@ -23,6 +23,26 @@ async fn check_for_replication(info: Arc<ServerInfo>) -> Result<()> {
                 "PING",
             ))])))
             .await?;
+
+        let response = connection.read_frame().await?;
+
+        connection
+            .write_frame(&Frame::Array(Some(vec![
+                Frame::BulkString(Bytes::from("REPLCONF")),
+                Frame::BulkString(Bytes::from("listening-port")),
+                Frame::BulkString(Bytes::from(format!("{:}", local_addres.port()))),
+            ])))
+            .await?;
+        let response = connection.read_frame().await?;
+
+        connection
+            .write_frame(&Frame::Array(Some(vec![
+                Frame::BulkString(Bytes::from("REPLCONF")),
+                Frame::BulkString(Bytes::from("capa")),
+                Frame::BulkString(Bytes::from("psync2")),
+            ])))
+            .await?;
+        let response = connection.read_frame().await?;
     }
     Ok(())
 }
@@ -43,7 +63,7 @@ impl Server {
     }
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
-        check_for_replication(self.info.clone()).await?;
+        check_for_replication(self.info.clone(), listener.local_addr()?).await?;
 
         loop {
             let socket = listener.accept().await?;
