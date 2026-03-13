@@ -1,4 +1,4 @@
-use crate::frame::{Frame, ToFrame};
+use crate::frame::{Frame, IntoFrame};
 use crate::parser::Parse;
 
 use bytes::Bytes;
@@ -20,6 +20,6 @@ impl XRange {
     pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         let xrange = db.xrange(self.key, &self.start, &self.stop)?;
 
-        Ok(xrange.to_frame())
+        Ok(xrange.into_frame())
     }
 }

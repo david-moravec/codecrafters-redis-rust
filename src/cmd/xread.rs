@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use tokio::time::timeout;
 
-use crate::frame::{Frame, ToFrame};
+use crate::frame::{Frame, IntoFrame};
 use crate::parser::Parse;
 use std::time::Duration;
 
@@ -67,7 +67,7 @@ impl XRead {
         };
 
         let frame = match xread {
-            Some(xread) => xread.to_frame(),
+            Some(xread) => xread.into_frame(),
             None => Frame::Array(None),
         };
 

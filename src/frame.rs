@@ -472,6 +472,9 @@ mod tests {
     }
 }
 
+pub trait IntoFrame {
+    fn into_frame(self) -> Frame;
+}
 pub trait ToFrame {
-    fn to_frame(self) -> Frame;
+    fn to_frame(&self) -> Frame;
 }

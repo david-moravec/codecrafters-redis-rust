@@ -6,7 +6,7 @@ use std::ops::Bound::{self, Excluded, Included};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
-use crate::frame::{Frame, ToFrame};
+use crate::frame::{Frame, IntoFrame};
 
 #[derive(Debug, Error)]
 pub enum StreamError {
@@ -52,8 +52,8 @@ impl StreamEntry {
     }
 }
 
-impl ToFrame for StreamEntry {
-    fn to_frame(self) -> crate::frame::Frame {
+impl IntoFrame for StreamEntry {
+    fn into_frame(self) -> crate::frame::Frame {
         Frame::Array(Some(
             self.values
                 .into_iter()
@@ -76,8 +76,8 @@ impl XRange {
     }
 }
 
-impl ToFrame for XRange {
-    fn to_frame(self) -> Frame {
+impl IntoFrame for XRange {
+    fn into_frame(self) -> Frame {
         Frame::Array(Some(
             self.entries
                 .into_iter()
@@ -85,7 +85,7 @@ impl ToFrame for XRange {
                     Frame::Array(Some({
                         vec![
                             Frame::BulkString(Bytes::from(format!("{:}", id))),
-                            vec_entries.to_frame(),
+                            vec_entries.into_frame(),
                         ]
                     }))
                 })
@@ -105,15 +105,15 @@ impl XRead {
     }
 }
 
-impl ToFrame for XRead {
-    fn to_frame(self) -> Frame {
+impl IntoFrame for XRead {
+    fn into_frame(self) -> Frame {
         Frame::Array(Some(
             self.entries
                 .into_iter()
                 .map(|(key, xrange)| {
                     Frame::Array(Some(vec![
                         Frame::BulkString(Bytes::from(key)),
-                        xrange.to_frame(),
+                        xrange.into_frame(),
                     ]))
                 })
                 .collect(),
