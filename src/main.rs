@@ -7,10 +7,20 @@ mod server;
 mod stream;
 
 use crate::server::Server;
+use clap::Parser;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about=None)]
+struct Args {
+    #[arg(short, long, default_value = "6379")]
+    port: String,
+}
 
 #[tokio::main]
 async fn main() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:6379")
+    let args = Args::parse();
+
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{:}", args.port))
         .await
         .unwrap();
     let server = Server::new();
