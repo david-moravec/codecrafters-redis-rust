@@ -43,6 +43,13 @@ async fn check_for_replication(info: Arc<ServerInfo>, local_addres: SocketAddr) 
             ])))
             .await?;
         let response = connection.read_frame().await?;
+        connection
+            .write_frame(&Frame::Array(Some(vec![
+                Frame::BulkString(Bytes::from("PSYNC")),
+                Frame::BulkString(Bytes::from("?")),
+                Frame::BulkString(Bytes::from("-1")),
+            ])))
+            .await?;
     }
     Ok(())
 }
