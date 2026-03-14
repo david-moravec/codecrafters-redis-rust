@@ -17,7 +17,7 @@ pub(crate) struct Connection {
     buffer: BytesMut,
     pub(crate) multi_queue: VecDeque<Command>,
     pub(crate) is_multi: bool,
-    server_info: Arc<ServerInfo>,
+    pub server_info: Arc<ServerInfo>,
 }
 
 impl Connection {

@@ -11,6 +11,7 @@ mod lpush;
 mod lrange;
 mod multi;
 mod ping;
+mod psync;
 mod replconf;
 mod rpush;
 mod set;
@@ -38,6 +39,7 @@ use lpush::LPush;
 use lrange::LRange;
 use multi::Multi;
 use ping::Ping;
+use psync::Psync;
 use replconf::Replconf;
 use rpush::RPush;
 use set::Set;
@@ -67,6 +69,7 @@ pub enum Command {
     Discard(Discard),
     Info(Info),
     Replconf(Replconf),
+    Psync(Psync),
 }
 
 impl Command {
@@ -96,6 +99,7 @@ impl Command {
             "discard" => Command::Discard(Discard::parse(&mut parse)?),
             "info" => Command::Info(Info::parse(&mut parse)?),
             "replconf" => Command::Replconf(Replconf::parse(&mut parse)?),
+            "psync" => Command::Psync(Psync::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -126,6 +130,7 @@ impl Command {
             Self::Discard(_) => unreachable!(),
             Self::Exec(_) => unreachable!(),
             Self::Replconf(_) => unreachable!(),
+            Self::Psync(_) => unreachable!(),
         }
     }
 
@@ -136,6 +141,7 @@ impl Command {
                 Self::Discard(cmd) => cmd.apply(dst)?,
                 Self::Multi(cmd) => cmd.apply(dst)?,
                 Self::Replconf(cmd) => cmd.apply(dst)?,
+                Self::Psync(cmd) => cmd.apply(dst)?,
                 _ => {
                     if dst.is_multi {
                         dst.multi_queue.push_back(self);
