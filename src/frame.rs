@@ -208,6 +208,14 @@ impl Frame {
         }
     }
 
+    pub fn bulk_strings_array(args: &[&str]) -> Frame {
+        Frame::Array(Some(
+            args.into_iter()
+                .map(|s| Frame::BulkString(Bytes::from_iter(s.bytes())))
+                .collect(),
+        ))
+    }
+
     pub(crate) fn frame_symbol(&self) -> u8 {
         match self {
             Self::Simple(_) => b'+',

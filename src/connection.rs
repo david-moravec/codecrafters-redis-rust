@@ -95,6 +95,10 @@ impl Connection {
         self.server_info.replication.to_frame()
     }
 
+    pub async fn send_command(&mut self, args: &[&str]) -> Result<()> {
+        self.write_frame(&Frame::bulk_strings_array(args)).await
+    }
+
     async fn write_value(&mut self, frame: &Frame) -> Result<()> {
         self.stream.write_u8(frame.frame_symbol()).await?;
 

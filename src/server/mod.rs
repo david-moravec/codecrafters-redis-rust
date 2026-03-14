@@ -23,33 +23,23 @@ async fn check_for_replication(info: Arc<ServerInfo>, local_addres: SocketAddr) 
                 "PING",
             ))])))
             .await?;
-
-        let response = connection.read_frame().await?;
-
-        connection
-            .write_frame(&Frame::Array(Some(vec![
-                Frame::BulkString(Bytes::from("REPLCONF")),
-                Frame::BulkString(Bytes::from("listening-port")),
-                Frame::BulkString(Bytes::from(format!("{:}", local_addres.port()))),
-            ])))
-            .await?;
-        let response = connection.read_frame().await?;
+        let _ = connection.read_frame().await?;
 
         connection
-            .write_frame(&Frame::Array(Some(vec![
-                Frame::BulkString(Bytes::from("REPLCONF")),
-                Frame::BulkString(Bytes::from("capa")),
-                Frame::BulkString(Bytes::from("psync2")),
-            ])))
+            .send_command(&[
+                "REPLCONF",
+                "listening-port",
+                format!("{:}", local_addres.port()).as_str(),
+            ])
             .await?;
-        let response = connection.read_frame().await?;
+        let _ = connection.read_frame().await?;
+
         connection
-            .write_frame(&Frame::Array(Some(vec![
-                Frame::BulkString(Bytes::from("PSYNC")),
-                Frame::BulkString(Bytes::from("?")),
-                Frame::BulkString(Bytes::from("-1")),
-            ])))
+            .send_command(&["REPLCONF", "capa", "psync2"])
             .await?;
+        let _ = connection.read_frame().await?;
+
+        connection.send_command(&["PSYNC", "?", "-1"]).await?;
     }
     Ok(())
 }
