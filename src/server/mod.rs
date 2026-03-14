@@ -15,31 +15,34 @@ use info::{Role, ServerInfo};
 async fn check_for_replication(info: Arc<ServerInfo>, local_addres: SocketAddr) -> Result<()> {
     use crate::frame::Frame;
 
-    if let Role::Slave(ref addr) = info.replication.role {
-        let mut connection = Connection::new(TcpStream::connect(addr).await?, info);
+    match info.replication.role {
+        Role::Slave(ref addr) => {
+            let mut connection = Connection::new(TcpStream::connect(addr).await?, info);
 
-        connection
-            .write_frame(&Frame::Array(Some(vec![Frame::BulkString(Bytes::from(
-                "PING",
-            ))])))
-            .await?;
-        let _ = connection.read_frame().await?;
+            connection
+                .write_frame(&Frame::Array(Some(vec![Frame::BulkString(Bytes::from(
+                    "PING",
+                ))])))
+                .await?;
+            let _ = connection.read_frame().await?;
 
-        connection
-            .send_command(&[
-                "REPLCONF",
-                "listening-port",
-                format!("{:}", local_addres.port()).as_str(),
-            ])
-            .await?;
-        let _ = connection.read_frame().await?;
+            connection
+                .send_command(&[
+                    "REPLCONF",
+                    "listening-port",
+                    format!("{:}", local_addres.port()).as_str(),
+                ])
+                .await?;
+            let _ = connection.read_frame().await?;
 
-        connection
-            .send_command(&["REPLCONF", "capa", "psync2"])
-            .await?;
-        let _ = connection.read_frame().await?;
+            connection
+                .send_command(&["REPLCONF", "capa", "psync2"])
+                .await?;
+            let _ = connection.read_frame().await?;
 
-        connection.send_command(&["PSYNC", "?", "-1"]).await?;
+            connection.send_command(&["PSYNC", "?", "-1"]).await?;
+        }
+        _ => {}
     }
     Ok(())
 }

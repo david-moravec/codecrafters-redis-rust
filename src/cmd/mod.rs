@@ -11,6 +11,7 @@ mod lpush;
 mod lrange;
 mod multi;
 mod ping;
+mod replconf;
 mod rpush;
 mod set;
 mod type_cmd;
@@ -22,7 +23,6 @@ use crate::connection::Connection;
 use crate::db::Db;
 use crate::frame::Frame;
 use crate::parser::Parse;
-use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use blpop::BLPop;
@@ -38,6 +38,7 @@ use lpush::LPush;
 use lrange::LRange;
 use multi::Multi;
 use ping::Ping;
+use replconf::Replconf;
 use rpush::RPush;
 use set::Set;
 use type_cmd::Type;
@@ -65,6 +66,7 @@ pub enum Command {
     Exec(Exec),
     Discard(Discard),
     Info(Info),
+    Replconf(Replconf),
 }
 
 impl Command {
@@ -93,6 +95,7 @@ impl Command {
             "exec" => Command::Exec(Exec::parse(&mut parse)?),
             "discard" => Command::Discard(Discard::parse(&mut parse)?),
             "info" => Command::Info(Info::parse(&mut parse)?),
+            "replconf" => Command::Replconf(Replconf::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -122,6 +125,7 @@ impl Command {
             Self::Multi(_) => unreachable!(),
             Self::Discard(_) => unreachable!(),
             Self::Exec(_) => unreachable!(),
+            Self::Replconf(_) => unreachable!(),
         }
     }
 
@@ -131,6 +135,7 @@ impl Command {
                 Self::Exec(cmd) => cmd.apply(db, dst).await?,
                 Self::Discard(cmd) => cmd.apply(dst)?,
                 Self::Multi(cmd) => cmd.apply(dst)?,
+                Self::Replconf(cmd) => cmd.apply(dst)?,
                 _ => {
                     if dst.is_multi {
                         dst.multi_queue.push_back(self);
