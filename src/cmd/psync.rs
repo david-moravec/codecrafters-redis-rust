@@ -10,7 +10,7 @@ impl Psync {
         while let Ok(_) = parse.next_string() {}
         Ok(Psync {})
     }
-    pub fn apply(self, dst: &mut crate::connection::Connection) -> anyhow::Result<Frame> {
+    pub fn apply(self, dst: &crate::connection::Connection) -> anyhow::Result<Frame> {
         let frame = match &dst.server_info.replication.role {
             crate::server::info::Role::Master {
                 repl_id,

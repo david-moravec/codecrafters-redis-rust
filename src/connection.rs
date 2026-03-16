@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use bytes::Bytes;
 use bytes::{Buf, BytesMut};
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
@@ -44,6 +45,18 @@ impl Connection {
                 }
             }
         }
+    }
+
+    pub async fn write_rdb_file(&mut self, rdb_file: Bytes) -> Result<()> {
+        self.stream.write_u8(b'$').await?;
+        self.write_u64(rdb_file.len() as u64).await?;
+        self.stream.write_all(b"\r\n").await?;
+        self.stream
+            .write_all(&rdb_file)
+            .await
+            .map_err(|e| anyhow!("writing rdb file failed; {:}", e))?;
+
+        Ok(self.stream.flush().await?)
     }
 
     pub async fn write_frame(&mut self, frame: &Frame) -> Result<()> {

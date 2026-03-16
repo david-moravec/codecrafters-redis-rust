@@ -135,24 +135,29 @@ impl Command {
     }
 
     pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<()> {
-        let frame = {
-            match self {
-                Self::Exec(cmd) => cmd.apply(db, dst).await?,
-                Self::Discard(cmd) => cmd.apply(dst)?,
-                Self::Multi(cmd) => cmd.apply(dst)?,
-                Self::Replconf(cmd) => cmd.apply(dst)?,
-                Self::Psync(cmd) => cmd.apply(dst)?,
-                _ => {
-                    if dst.is_queueing_commands {
-                        dst.command_queue.push_back(self);
-                        Frame::Simple("QUEUED".to_string())
-                    } else {
-                        self.apply_queueble(db, dst).await?
+        if let Self::Psync(cmd) = self {
+            dst.write_frame(&cmd.apply(dst)?).await?;
+            dst.write_rdb_file(db.to_rdb_file()).await
+        } else {
+            let frame = {
+                match self {
+                    Self::Exec(cmd) => cmd.apply(db, dst).await?,
+                    Self::Discard(cmd) => cmd.apply(dst)?,
+                    Self::Multi(cmd) => cmd.apply(dst)?,
+                    Self::Replconf(cmd) => cmd.apply(dst)?,
+                    Self::Psync(_) => unreachable!(),
+                    _ => {
+                        if dst.is_queueing_commands {
+                            dst.command_queue.push_back(self);
+                            Frame::Simple("QUEUED".to_string())
+                        } else {
+                            self.apply_queueble(db, dst).await?
+                        }
                     }
                 }
-            }
-        };
+            };
 
-        dst.write_frame(&frame).await
+            dst.write_frame(&frame).await
+        }
     }
 }
