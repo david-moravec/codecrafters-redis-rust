@@ -143,8 +143,8 @@ impl Command {
                 Self::Replconf(cmd) => cmd.apply(dst)?,
                 Self::Psync(cmd) => cmd.apply(dst)?,
                 _ => {
-                    if dst.is_multi {
-                        dst.multi_queue.push_back(self);
+                    if dst.is_queueing_commands {
+                        dst.command_queue.push_back(self);
                         Frame::Simple("QUEUED".to_string())
                     } else {
                         self.apply_queueble(db, dst).await?

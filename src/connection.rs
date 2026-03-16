@@ -15,9 +15,9 @@ use crate::server::info::ServerInfo;
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
-    pub(crate) multi_queue: VecDeque<Command>,
-    pub(crate) is_multi: bool,
-    pub server_info: Arc<ServerInfo>,
+    pub(crate) command_queue: VecDeque<Command>,
+    pub(crate) is_queueing_commands: bool,
+    pub(crate) server_info: Arc<ServerInfo>,
 }
 
 impl Connection {
@@ -25,8 +25,8 @@ impl Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4096),
-            multi_queue: VecDeque::new(),
-            is_multi: false,
+            command_queue: VecDeque::new(),
+            is_queueing_commands: false,
             server_info: info,
         }
     }

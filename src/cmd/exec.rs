@@ -16,11 +16,11 @@ impl Exec {
         dst: &mut crate::connection::Connection,
     ) -> anyhow::Result<Frame> {
         let frame: Frame;
-        if !dst.is_multi {
+        if !dst.is_queueing_commands {
             frame = Frame::Error("ERR EXEC without MULTI".to_string());
         } else {
-            dst.is_multi = false;
-            let command_queue: Vec<Command> = dst.multi_queue.drain(..).collect();
+            dst.is_queueing_commands = false;
+            let command_queue: Vec<Command> = dst.command_queue.drain(..).collect();
             let mut responses: Vec<Frame> = vec![];
 
             for cmd in command_queue {

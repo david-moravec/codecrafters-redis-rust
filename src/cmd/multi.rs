@@ -8,7 +8,7 @@ impl Multi {
         Ok(Multi {})
     }
     pub fn apply(self, dst: &mut crate::connection::Connection) -> anyhow::Result<Frame> {
-        dst.is_multi = true;
+        dst.is_queueing_commands = true;
         let frame = Frame::Simple("OK".to_string());
         Ok(frame)
     }

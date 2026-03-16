@@ -9,11 +9,11 @@ impl Discard {
     }
     pub fn apply(self, dst: &mut crate::connection::Connection) -> anyhow::Result<Frame> {
         let frame: Frame;
-        if !dst.is_multi {
+        if !dst.is_queueing_commands {
             frame = Frame::Error("ERR DISCARD without MULTI".to_string());
         } else {
-            dst.is_multi = false;
-            dst.multi_queue.drain(..);
+            dst.is_queueing_commands = false;
+            dst.command_queue.drain(..);
             frame = Frame::Simple("OK".to_string())
         }
         Ok(frame)
