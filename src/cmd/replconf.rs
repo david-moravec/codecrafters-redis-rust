@@ -1,15 +1,29 @@
 use crate::frame::Frame;
 use crate::parser::Parse;
 
-pub struct Replconf {}
+pub struct Replconf {
+    send_offset: bool,
+}
 
 impl Replconf {
     pub fn parse(parse: &mut Parse) -> anyhow::Result<Self> {
-        while let Ok(_) = parse.next_string() {}
-        Ok(Replconf {})
+        let mut send_offset = false;
+
+        while let Ok(s) = parse.next_string() {
+            if s.to_lowercase() == "getack" {
+                send_offset = true;
+            }
+        }
+        Ok(Replconf { send_offset })
     }
     pub fn apply(self, dst: &mut crate::connection::Connection) -> anyhow::Result<Frame> {
-        let frame = Frame::Simple("OK".to_string());
+        let frame = {
+            if self.send_offset {
+                Frame::bulk_strings_array(&["REPLCONF", "ACK", "0"])
+            } else {
+                Frame::Simple("OK".to_string())
+            }
+        };
         Ok(frame)
     }
 }

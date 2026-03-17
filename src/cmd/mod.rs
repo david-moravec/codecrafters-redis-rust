@@ -139,13 +139,16 @@ impl Command {
             dst.write_frame(&cmd.apply(dst)?).await?;
             dst.write_rdb_file(db.to_rdb_file()).await?;
             dst.subscribe_for_replication()
+        } else if let Self::Replconf(cmd) = self {
+            let frame = cmd.apply(dst)?;
+            dst.write_frame(&frame).await
         } else {
             let frame = {
                 match self {
                     Self::Exec(cmd) => cmd.apply(db, dst).await?,
                     Self::Discard(cmd) => cmd.apply(dst)?,
                     Self::Multi(cmd) => cmd.apply(dst)?,
-                    Self::Replconf(cmd) => cmd.apply(dst)?,
+                    Self::Replconf(_) => unreachable!(),
                     Self::Psync(_) => unreachable!(),
                     _ => {
                         if dst.is_queueing_commands {
