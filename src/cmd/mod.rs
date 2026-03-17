@@ -20,7 +20,7 @@ mod xadd;
 mod xrange;
 mod xread;
 
-use crate::connection::Connection;
+use crate::connection::{Connection, ConnectionType};
 use crate::db::Db;
 use crate::frame::Frame;
 use crate::parser::Parse;
@@ -73,7 +73,7 @@ pub enum Command {
 }
 
 impl Command {
-    pub async fn from_frame(frame: Frame) -> Result<Command> {
+    pub fn from_frame(frame: Frame) -> Result<Command> {
         let mut parse = Parse::new(frame)?;
 
         let command_name = parse.next_string()?.to_lowercase();
@@ -113,7 +113,7 @@ impl Command {
             Self::Ping(cmd) => cmd.apply(db),
             Self::Get(cmd) => cmd.apply(db),
             Self::Echo(cmd) => cmd.apply(db),
-            Self::Set(cmd) => cmd.apply(db),
+            Self::Set(cmd) => cmd.apply(db, dst),
             Self::Incr(cmd) => cmd.apply(db),
             Self::RPush(cmd) => cmd.apply(db),
             Self::LRange(cmd) => cmd.apply(db),
@@ -137,6 +137,7 @@ impl Command {
     pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<()> {
         if let Self::Psync(cmd) = self {
             dst.write_frame(&cmd.apply(dst)?).await?;
+            dst.subscribe_for_replication()?;
             dst.write_rdb_file(db.to_rdb_file()).await
         } else {
             let frame = {
@@ -157,7 +158,11 @@ impl Command {
                 }
             };
 
-            dst.write_frame(&frame).await
+            if let ConnectionType::Client(_) = dst.connection_type {
+                dst.write_frame(&frame).await
+            } else {
+                Ok(())
+            }
         }
     }
 }

@@ -38,7 +38,16 @@ impl Set {
 
         Ok(Set { key, value, expire })
     }
-    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
+    pub fn apply(
+        self,
+        db: &crate::db::Db,
+        dst: &mut crate::connection::Connection,
+    ) -> anyhow::Result<Frame> {
+        dst.send_to_replicas_connections(Frame::bulk_strings_array(&[
+            "SET",
+            &self.key,
+            &String::from_utf8(self.value.to_vec())?,
+        ]))?;
         db.set(self.key, self.value, self.expire);
         Ok(Frame::Simple("OK".to_string()))
     }

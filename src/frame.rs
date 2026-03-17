@@ -33,7 +33,7 @@ impl Encoding {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum Frame {
     Simple(String),
     Error(String),
@@ -250,7 +250,7 @@ impl Frame {
             }
             Self::Integer(val) => bytes_mut.put_u64(*val),
             Self::BulkString(bytes) => {
-                bytes_mut.put_u64(bytes.len() as u64);
+                bytes_mut.put_slice(format!("{:}", bytes.len()).as_bytes());
                 bytes_mut.put_slice(b"\r\n");
                 bytes_mut.put_slice(&bytes);
             }
@@ -311,7 +311,7 @@ impl Frame {
 fn array_to_bytes(array: &[Frame]) -> Bytes {
     let mut bytes_mut = BytesMut::new();
     let len = array.len();
-    bytes_mut.put_u64(len as u64);
+    bytes_mut.put_slice(format!("{:}", len).as_bytes());
     bytes_mut.put_slice(b"\r\n");
 
     for frame in array.into_iter() {
