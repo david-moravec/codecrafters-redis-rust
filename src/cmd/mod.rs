@@ -137,8 +137,8 @@ impl Command {
     pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<()> {
         if let Self::Psync(cmd) = self {
             dst.write_frame(&cmd.apply(dst)?).await?;
-            dst.subscribe_for_replication()?;
-            dst.write_rdb_file(db.to_rdb_file()).await
+            dst.write_rdb_file(db.to_rdb_file()).await?;
+            dst.subscribe_for_replication()
         } else {
             let frame = {
                 match self {

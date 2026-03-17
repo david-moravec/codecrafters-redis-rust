@@ -11,9 +11,10 @@ use tokio::{
 };
 
 use crate::cmd::Command;
-use crate::frame::{Frame, FrameError, ToFrame};
+use crate::frame::{Frame, FrameError, ToFrame, parse_rdb_file};
 use crate::server::info::ServerInfo;
 
+#[derive(Debug)]
 pub enum ConnectionType {
     Client(Arc<Sender<Frame>>),
     Replication(Receiver<Frame>),
@@ -86,6 +87,15 @@ impl Connection {
                 Err(_) => Ok(()),
             },
         }
+    }
+
+    pub async fn read_rdb_file(&mut self) -> Result<()> {
+        self.stream.read_buf(&mut self.buffer).await?;
+        let mut buf = Cursor::new(&self.buffer[..]);
+        parse_rdb_file(&mut buf).await?;
+        let len = buf.position() as usize;
+        self.buffer.advance(len);
+        Ok(())
     }
 
     pub async fn write_rdb_file(&mut self, rdb_file: Bytes) -> Result<()> {

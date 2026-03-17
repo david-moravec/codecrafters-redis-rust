@@ -2,10 +2,7 @@ pub mod info;
 
 use anyhow::Result;
 use std::{net::SocketAddr, sync::Arc};
-use tokio::{
-    net::TcpListener,
-    sync::broadcast::{Receiver, Sender},
-};
+use tokio::{net::TcpListener, sync::broadcast::Sender};
 
 use crate::{connection::ConnectionType, db::Db};
 use bytes::Bytes;
@@ -21,7 +18,7 @@ async fn check_for_replication(
     info: Arc<ServerInfo>,
     local_addres: SocketAddr,
     replication_tx: Arc<Sender<Frame>>,
-) -> Result<()> {
+) -> Result<Option<Connection>> {
     match info.replication.role {
         Role::Slave(ref addr) => {
             let mut connection =
@@ -49,21 +46,17 @@ async fn check_for_replication(
             let _ = connection.read_frame().await?;
 
             connection.send_command(&["PSYNC", "?", "-1"]).await?;
+            connection.read_frame().await?;
+            connection.read_rdb_file().await?;
+            Ok(Some(connection))
         }
-        _ => {}
+        _ => Ok(None),
     }
-    Ok(())
 }
 
 #[derive(Clone)]
 pub struct ReplicationBroadcast {
     tx: Arc<Sender<Frame>>,
-}
-
-impl ReplicationBroadcast {
-    pub fn subscribe(&self) -> Receiver<Frame> {
-        self.tx.subscribe()
-    }
 }
 
 pub struct Server {
@@ -85,22 +78,40 @@ impl Server {
         }
     }
 
-    pub async fn run(&self, listener: TcpListener) -> Result<()> {
-        check_for_replication(
+    async fn replicate(&self, listener: &TcpListener) -> Result<()> {
+        if let Some(repl_connection) = check_for_replication(
             self.info.clone(),
             listener.local_addr()?,
             self.replication_broadcast.tx.clone(),
         )
-        .await?;
+        .await?
+        {
+            eprintln!("{:?}", repl_connection.connection_type);
+            let mut handler = Handle::new(self.db.clone(), repl_connection);
+            tokio::spawn(async move {
+                if let Err(err) = handler.run().await {
+                    eprint!("replication error {:}", err);
+                }
+            });
+        }
 
+        Ok(())
+    }
+
+    pub async fn run(&self, listener: TcpListener) -> Result<()> {
+        self.replicate(&listener).await?;
+        self.run_db(listener).await
+    }
+
+    async fn run_db(&self, listener: TcpListener) -> Result<()> {
         loop {
             let socket = listener.accept().await?;
-            let mut handler = Handle::new(
-                self.db.clone(),
+            let connection = Connection::new(
                 socket.0,
                 self.info.clone(),
                 self.replication_broadcast.tx.clone(),
             );
+            let mut handler = Handle::new(self.db.clone(), connection);
 
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
@@ -117,16 +128,8 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub fn new(
-        db: Db,
-        stream: TcpStream,
-        info: Arc<ServerInfo>,
-        replication_rx: Arc<Sender<Frame>>,
-    ) -> Self {
-        Handle {
-            db,
-            connection: Connection::new(stream, info, replication_rx),
-        }
+    pub fn new(db: Db, connection: Connection) -> Self {
+        Handle { db, connection }
     }
 
     pub(crate) async fn run(&mut self) -> Result<()> {

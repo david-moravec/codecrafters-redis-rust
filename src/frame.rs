@@ -61,6 +61,20 @@ pub(crate) enum FrameError {
     Other(#[from] anyhow::Error),
 }
 
+pub async fn parse_rdb_file(buf: &mut Cursor<&[u8]>) -> FrameResult<()> {
+    if get_u8(buf)? != b'$' {
+        return Err(FrameError::Other(anyhow!(
+            "protocol error; expected '$' at the start of RDB file"
+        )));
+    }
+
+    let len: usize = get_decimal(buf)?
+        .try_into()
+        .map_err(|_| anyhow!("Conversion to usize failed"))?;
+    skip(buf, len)?;
+    Ok(())
+}
+
 impl Frame {
     pub fn check(buf: &mut Cursor<&[u8]>) -> FrameResult<()> {
         match get_u8(buf)? {
