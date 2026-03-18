@@ -222,11 +222,9 @@ impl Frame {
         }
     }
 
-    pub fn bulk_strings_array(args: &[&str]) -> Frame {
+    pub fn bulk_strings_array(args: Vec<Bytes>) -> Frame {
         Frame::Array(Some(
-            args.into_iter()
-                .map(|s| Frame::BulkString(Bytes::from_iter(s.bytes())))
-                .collect(),
+            args.into_iter().map(|b| Frame::BulkString(b)).collect(),
         ))
     }
 

@@ -152,6 +152,7 @@ dependencies = [
  "bytes",
  "clap",
  "hex",
+ "macros",
  "thiserror",
  "tokio",
 ]
@@ -203,6 +204,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
+]
+
+[[package]]
+name = "macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

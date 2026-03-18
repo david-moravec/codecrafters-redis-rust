@@ -171,7 +171,10 @@ impl Connection {
     }
 
     pub async fn send_command(&mut self, args: &[&str]) -> Result<()> {
-        self.write_frame(&Frame::bulk_strings_array(args)).await
+        self.write_frame(&Frame::bulk_strings_array(
+            args.iter().map(|s| Bytes::from(s.to_string())).collect(),
+        ))
+        .await
     }
 
     async fn write_value(&mut self, frame: &Frame) -> Result<()> {

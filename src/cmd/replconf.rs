@@ -1,5 +1,6 @@
 use crate::frame::Frame;
 use crate::parser::Parse;
+use bytes::Bytes;
 
 pub struct Replconf {
     send_offset: bool,
@@ -19,7 +20,11 @@ impl Replconf {
     pub fn apply(self, dst: &mut crate::connection::Connection) -> anyhow::Result<Frame> {
         let frame = {
             if self.send_offset {
-                Frame::bulk_strings_array(&["REPLCONF", "ACK", "0"])
+                Frame::bulk_strings_array(vec![
+                    Bytes::from("REPLCONF"),
+                    Bytes::from("ACK"),
+                    Bytes::from("0"),
+                ])
             } else {
                 Frame::Simple("OK".to_string())
             }

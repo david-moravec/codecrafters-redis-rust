@@ -1,3 +1,6 @@
+[workspace]
+members = ["macros"]
+
 [package]
 name = "codecrafters-redis"
 version = "0.1.0"
@@ -5,6 +8,7 @@ authors = ["Codecrafters <hello@codecrafters.io>"]
 edition = "2024"
 
 [dependencies]
+macros = {path = "./macros"}
 anyhow = "1.0.59"                                   # error handling
 async-trait = "0.1.89"
 atoi = "2.0.0"
