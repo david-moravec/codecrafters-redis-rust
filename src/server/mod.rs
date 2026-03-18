@@ -86,7 +86,7 @@ impl Server {
         )
         .await?
         {
-            let mut handler = Handle::new(self.db.clone(), repl_connection);
+            let mut handler = Handle::new(self.db.clone(), repl_connection, true);
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
                     eprint!("replication error {:}", err);
@@ -110,7 +110,7 @@ impl Server {
                 self.info.clone(),
                 self.replication_broadcast.tx.clone(),
             );
-            let mut handler = Handle::new(self.db.clone(), connection);
+            let mut handler = Handle::new(self.db.clone(), connection, false);
 
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
@@ -124,11 +124,18 @@ impl Server {
 pub struct Handle {
     pub(crate) db: Db,
     connection: Connection,
+    offset: usize,
+    silent: bool,
 }
 
 impl Handle {
-    pub fn new(db: Db, connection: Connection) -> Self {
-        Handle { db, connection }
+    pub fn new(db: Db, connection: Connection, silent: bool) -> Self {
+        Handle {
+            db,
+            connection,
+            offset: 0,
+            silent,
+        }
     }
 
     pub(crate) async fn run(&mut self) -> Result<()> {
@@ -142,11 +149,14 @@ impl Handle {
                         None => return Ok(()),
                     };
 
+                    let offset = frame.to_bytes().len();
+
                     Command::from_frame(frame)?
-                        .apply(&self.db, &mut self.connection)
-                        .await?
+                        .apply(&self.db, &mut self.connection, self.offset, self.silent)
+                        .await?;
+                    self.offset += offset;
                 }
-                ConnectionType::Replication(_) => self.connection.propagate_to_replicas().await?,
+                ConnectionType::FromReplica(_) => self.connection.propagate_to_replica().await?,
             }
         }
     }

@@ -17,7 +17,7 @@ use crate::server::info::ServerInfo;
 #[derive(Debug)]
 pub enum ConnectionType {
     Client(Arc<Sender<Frame>>),
-    Replication(Receiver<Frame>),
+    FromReplica(Receiver<Frame>),
 }
 
 pub(crate) struct Connection {
@@ -43,8 +43,8 @@ impl Connection {
 
     pub fn change_to_replica_connection(&mut self) -> Result<()> {
         let slave_replication = match self.connection_type {
-            ConnectionType::Client(ref tx) => ConnectionType::Replication(tx.subscribe()),
-            ConnectionType::Replication(_) => {
+            ConnectionType::Client(ref tx) => ConnectionType::FromReplica(tx.subscribe()),
+            ConnectionType::FromReplica(_) => {
                 return Err(anyhow!("Only master connection can become slave"));
             }
         };
@@ -72,14 +72,14 @@ impl Connection {
     async fn read_to_buf(&mut self) -> Result<usize> {
         match self.connection_type {
             ConnectionType::Client(_) => Ok(self.stream.read_buf(&mut self.buffer).await?),
-            ConnectionType::Replication(_) => unreachable!(),
+            ConnectionType::FromReplica(_) => unreachable!(),
         }
     }
 
-    pub async fn propagate_to_replicas(&mut self) -> Result<()> {
+    pub async fn propagate_to_replica(&mut self) -> Result<()> {
         match self.connection_type {
             ConnectionType::Client(_) => unreachable!(),
-            ConnectionType::Replication(ref mut rx) => match rx.recv().await {
+            ConnectionType::FromReplica(ref mut rx) => match rx.recv().await {
                 Ok(ref frame) => {
                     self.write_frame(frame).await?;
                     Ok(())
@@ -117,7 +117,7 @@ impl Connection {
                 if let Err(_) = tx.send(frame) {};
                 Ok(())
             }
-            ConnectionType::Replication(_) => Ok(()),
+            ConnectionType::FromReplica(_) => Ok(()),
         }
     }
 

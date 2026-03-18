@@ -17,14 +17,20 @@ impl Replconf {
         }
         Ok(Replconf { send_offset })
     }
-    pub fn apply(self, dst: &mut crate::connection::Connection) -> anyhow::Result<Frame> {
+    pub fn apply(
+        self,
+        dst: &mut crate::connection::Connection,
+        offset: usize,
+    ) -> anyhow::Result<Frame> {
         let frame = {
             if self.send_offset {
-                Frame::bulk_strings_array(vec![
+                let f = Frame::bulk_strings_array(vec![
                     Bytes::from("REPLCONF"),
                     Bytes::from("ACK"),
                     Bytes::from("0"),
-                ])
+                ]);
+                eprintln!("{:?}", f);
+                f
             } else {
                 Frame::Simple("OK".to_string())
             }

@@ -134,14 +134,22 @@ impl Command {
         }
     }
 
-    pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<()> {
+    pub async fn apply(
+        self,
+        db: &Db,
+        dst: &mut Connection,
+        offset: usize,
+        silent: bool,
+    ) -> Result<()> {
         if let Self::Psync(cmd) = self {
             dst.write_frame(&cmd.apply(dst)?).await?;
             dst.write_rdb_file(db.to_rdb_file()).await?;
             dst.change_to_replica_connection()
         } else if let Self::Replconf(cmd) = self {
-            let frame = cmd.apply(dst)?;
-            dst.write_frame(&frame).await
+            let frame = cmd.apply(dst, offset)?;
+            dst.write_frame(&frame).await?;
+            println!("{:?}", frame);
+            Ok(())
         } else {
             let frame = {
                 match self {
@@ -161,7 +169,7 @@ impl Command {
                 }
             };
 
-            if let ConnectionType::Client(_) = dst.connection_type {
+            if !silent {
                 dst.write_frame(&frame).await
             } else {
                 Ok(())
