@@ -41,7 +41,7 @@ impl Connection {
         }
     }
 
-    pub fn subscribe_for_replication(&mut self) -> Result<()> {
+    pub fn change_to_replica_connection(&mut self) -> Result<()> {
         let slave_replication = match self.connection_type {
             ConnectionType::Client(ref tx) => ConnectionType::Replication(tx.subscribe()),
             ConnectionType::Replication(_) => {
@@ -76,7 +76,7 @@ impl Connection {
         }
     }
 
-    pub async fn send_to_replicas(&mut self) -> Result<()> {
+    pub async fn propagate_to_replicas(&mut self) -> Result<()> {
         match self.connection_type {
             ConnectionType::Client(_) => unreachable!(),
             ConnectionType::Replication(ref mut rx) => match rx.recv().await {

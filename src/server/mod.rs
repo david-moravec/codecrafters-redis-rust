@@ -86,7 +86,6 @@ impl Server {
         )
         .await?
         {
-            eprintln!("{:?}", repl_connection.connection_type);
             let mut handler = Handle::new(self.db.clone(), repl_connection);
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
@@ -147,7 +146,7 @@ impl Handle {
                         .apply(&self.db, &mut self.connection)
                         .await?
                 }
-                ConnectionType::Replication(_) => self.connection.send_to_replicas().await?,
+                ConnectionType::Replication(_) => self.connection.propagate_to_replicas().await?,
             }
         }
     }

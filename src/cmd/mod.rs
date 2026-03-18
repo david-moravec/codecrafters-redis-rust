@@ -138,7 +138,7 @@ impl Command {
         if let Self::Psync(cmd) = self {
             dst.write_frame(&cmd.apply(dst)?).await?;
             dst.write_rdb_file(db.to_rdb_file()).await?;
-            dst.subscribe_for_replication()
+            dst.change_to_replica_connection()
         } else if let Self::Replconf(cmd) = self {
             let frame = cmd.apply(dst)?;
             dst.write_frame(&frame).await
