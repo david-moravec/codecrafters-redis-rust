@@ -16,6 +16,7 @@ mod replconf;
 mod rpush;
 mod set;
 mod type_cmd;
+mod wait;
 mod xadd;
 mod xrange;
 mod xread;
@@ -44,6 +45,7 @@ use replconf::Replconf;
 use rpush::RPush;
 use set::Set;
 use type_cmd::Type;
+use wait::Wait;
 use xadd::XAdd;
 use xrange::XRange;
 use xread::XRead;
@@ -70,6 +72,7 @@ pub enum Command {
     Info(Info),
     Replconf(Replconf),
     Psync(Psync),
+    Wait(Wait),
 }
 
 impl Command {
@@ -100,6 +103,7 @@ impl Command {
             "info" => Command::Info(Info::parse(&mut parse)?),
             "replconf" => Command::Replconf(Replconf::parse(&mut parse)?),
             "psync" => Command::Psync(Psync::parse(&mut parse)?),
+            "wait" => Command::Wait(Wait::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -131,6 +135,7 @@ impl Command {
             Self::Exec(_) => unreachable!(),
             Self::Replconf(_) => unreachable!(),
             Self::Psync(_) => unreachable!(),
+            Self::Wait(_) => unreachable!(),
         }
     }
 
@@ -141,6 +146,7 @@ impl Command {
             Self::Multi(cmd) => cmd.apply(dst),
             Self::Replconf(_) => unreachable!(),
             Self::Psync(_) => unreachable!(),
+            Self::Wait(_) => unreachable!(),
             _ => {
                 if dst.is_queueing_commands {
                     dst.command_queue.push_back(self);

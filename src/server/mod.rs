@@ -204,6 +204,9 @@ impl Handle {
                     } else if let Command::Replconf(cmd) = command {
                         let frame = cmd.apply(&mut self.connection, self.offset)?;
                         self.connection.write_frame(&frame).await?;
+                    } else if let Command::Wait(cmd) = command {
+                        let frame = cmd.apply()?;
+                        self.connection.write_frame(&frame).await?;
                     } else {
                         let response = command.apply(&self.db, &mut self.connection).await?;
                         self.connection.write_frame(&response).await?;
