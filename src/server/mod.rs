@@ -154,6 +154,7 @@ impl Handle {
                         None => return Ok(()),
                     };
 
+                    let frame_bytes_len = frame.to_bytes().len();
                     let command = Command::from_frame(frame)?;
 
                     if let Command::Replconf(cmd) = command {
@@ -162,6 +163,8 @@ impl Handle {
                     } else {
                         command.apply(&self.db, &mut self.connection).await?;
                     }
+
+                    self.offset += frame_bytes_len;
                 }
             }
             s => Err(anyhow!(

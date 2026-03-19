@@ -27,7 +27,7 @@ impl Replconf {
                 let f = Frame::bulk_strings_array(vec![
                     Bytes::from("REPLCONF"),
                     Bytes::from("ACK"),
-                    Bytes::from("0"),
+                    Bytes::from(format!("{:}", offset)),
                 ]);
                 // eprintln!("{:?}", f);
                 f
