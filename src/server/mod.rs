@@ -1,10 +1,10 @@
 pub mod info;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{net::TcpListener, sync::broadcast::Sender};
 
-use crate::{connection::ConnectionType, db::Db};
+use crate::db::Db;
 use bytes::Bytes;
 use tokio::net::TcpStream;
 use tokio::sync::broadcast;
@@ -13,46 +13,6 @@ use crate::cmd::Command;
 use crate::connection::Connection;
 use crate::frame::Frame;
 use info::{Role, ServerInfo};
-
-async fn check_for_replication(
-    info: Arc<ServerInfo>,
-    local_addres: SocketAddr,
-    replication_tx: Arc<Sender<Frame>>,
-) -> Result<Option<Connection>> {
-    match info.replication.role {
-        Role::Slave(ref addr) => {
-            let mut connection =
-                Connection::new(TcpStream::connect(addr).await?, info, replication_tx);
-
-            connection
-                .write_frame(&Frame::Array(Some(vec![Frame::BulkString(Bytes::from(
-                    "PING",
-                ))])))
-                .await?;
-            let _ = connection.read_frame().await?;
-
-            connection
-                .send_command(&[
-                    "REPLCONF",
-                    "listening-port",
-                    format!("{:}", local_addres.port()).as_str(),
-                ])
-                .await?;
-            let _ = connection.read_frame().await?;
-
-            connection
-                .send_command(&["REPLCONF", "capa", "psync2"])
-                .await?;
-            let _ = connection.read_frame().await?;
-
-            connection.send_command(&["PSYNC", "?", "-1"]).await?;
-            connection.read_frame().await?;
-            connection.read_rdb_file().await?;
-            Ok(Some(connection))
-        }
-        _ => Ok(None),
-    }
-}
 
 #[derive(Clone)]
 pub struct ReplicationBroadcast {
@@ -78,31 +38,30 @@ impl Server {
         }
     }
 
-    async fn replicate(&self, listener: &TcpListener) -> Result<()> {
-        if let Some(repl_connection) = check_for_replication(
+    async fn replicate(&self, listener: &TcpListener, addr: &str) -> Result<()> {
+        let connection = Connection::new(
+            TcpStream::connect(addr).await?,
             self.info.clone(),
-            listener.local_addr()?,
             self.replication_broadcast.tx.clone(),
-        )
-        .await?
-        {
-            let mut handler = Handle::new(self.db.clone(), repl_connection, true);
-            tokio::spawn(async move {
-                if let Err(err) = handler.run().await {
-                    eprint!("replication error {:}", err);
-                }
-            });
-        }
+        );
+        let mut handler = Handle::new_slave_handler(self.db.clone(), connection);
+
+        let local_address = listener.local_addr()?;
+
+        tokio::spawn(async move {
+            if let Err(err) = handler.replicate(local_address).await {
+                eprint!("replication error {:}", err);
+            }
+        });
 
         Ok(())
     }
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
-        self.replicate(&listener).await?;
-        self.run_db(listener).await
-    }
+        if let Role::Slave(ref addr) = self.info.replication.role {
+            self.replicate(&listener, addr).await?;
+        }
 
-    async fn run_db(&self, listener: TcpListener) -> Result<()> {
         loop {
             let socket = listener.accept().await?;
             let connection = Connection::new(
@@ -110,7 +69,7 @@ impl Server {
                 self.info.clone(),
                 self.replication_broadcast.tx.clone(),
             );
-            let mut handler = Handle::new(self.db.clone(), connection, false);
+            let handler = Handle::new(self.db.clone(), connection);
 
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
@@ -121,27 +80,73 @@ impl Server {
     }
 }
 
+#[derive(Debug)]
+enum ReplicationEnd {
+    Master(broadcast::Receiver<Frame>),
+    Slave,
+}
+
+#[derive(Debug)]
+enum HandlerState {
+    Client,
+    Replication(ReplicationEnd),
+}
+
 pub struct Handle {
     pub(crate) db: Db,
     connection: Connection,
     offset: usize,
-    silent: bool,
+    state: HandlerState,
 }
 
 impl Handle {
-    pub fn new(db: Db, connection: Connection, silent: bool) -> Self {
+    pub fn new(db: Db, connection: Connection) -> Self {
         Handle {
             db,
             connection,
             offset: 0,
-            silent,
+            state: HandlerState::Client,
         }
     }
 
-    pub(crate) async fn run(&mut self) -> Result<()> {
-        loop {
-            match self.connection.connection_type {
-                ConnectionType::Client(_) => {
+    pub fn new_slave_handler(db: Db, connection: Connection) -> Self {
+        Handle {
+            db,
+            connection,
+            offset: 0,
+            state: HandlerState::Replication(ReplicationEnd::Slave),
+        }
+    }
+
+    async fn replicate(&mut self, local_address: SocketAddr) -> Result<()> {
+        match &self.state {
+            HandlerState::Replication(ReplicationEnd::Slave) => {
+                self.connection
+                    .write_frame(&Frame::Array(Some(vec![Frame::BulkString(Bytes::from(
+                        "PING",
+                    ))])))
+                    .await?;
+                let _ = self.connection.read_frame().await?;
+
+                self.connection
+                    .send_command(&[
+                        "REPLCONF",
+                        "listening-port",
+                        format!("{:}", local_address.port()).as_str(),
+                    ])
+                    .await?;
+                let _ = self.connection.read_frame().await?;
+
+                self.connection
+                    .send_command(&["REPLCONF", "capa", "psync2"])
+                    .await?;
+                let _ = self.connection.read_frame().await?;
+
+                self.connection.send_command(&["PSYNC", "?", "-1"]).await?;
+                self.connection.read_frame().await?;
+                self.connection.read_rdb_file().await?;
+
+                loop {
                     let maybe_frame = self.connection.read_frame().await?;
 
                     let frame = match maybe_frame {
@@ -149,14 +154,67 @@ impl Handle {
                         None => return Ok(()),
                     };
 
-                    let offset = frame.to_bytes().len();
+                    let command = Command::from_frame(frame)?;
 
-                    Command::from_frame(frame)?
-                        .apply(&self.db, &mut self.connection, self.offset, self.silent)
-                        .await?;
-                    self.offset += offset;
+                    if let Command::Replconf(cmd) = command {
+                        let frame = cmd.apply(&mut self.connection, self.offset)?;
+                        self.connection.write_frame(&frame).await?;
+                    } else {
+                        command.apply(&self.db, &mut self.connection).await?;
+                    }
                 }
-                ConnectionType::FromReplica(_) => self.connection.propagate_to_replica().await?,
+            }
+            s => Err(anyhow!(
+                "Run replication can be invoked only on slave end of replication handle; current state is {:?}",
+                s
+            )),
+        }
+    }
+
+    pub(crate) async fn run(mut self) -> Result<()> {
+        if let HandlerState::Replication(ReplicationEnd::Slave) = self.state {
+            return Err(anyhow!(
+                "for running replication handler use 'replicate' method"
+            ));
+        }
+
+        loop {
+            match self.state {
+                HandlerState::Client => {
+                    let maybe_frame = self.connection.read_frame().await?;
+
+                    let frame = match maybe_frame {
+                        Some(frame) => frame,
+                        None => return Ok(()),
+                    };
+
+                    let command = Command::from_frame(frame)?;
+
+                    if let Command::Psync(cmd) = command {
+                        let dst = &mut self.connection;
+                        dst.write_frame(&cmd.apply(dst)?).await?;
+                        dst.write_rdb_file(self.db.to_rdb_file()).await?;
+
+                        self.state = HandlerState::Replication(ReplicationEnd::Master(
+                            dst.frame_broadcast.subscribe(),
+                        ));
+                    } else if let Command::Replconf(cmd) = command {
+                        let frame = cmd.apply(&mut self.connection, self.offset)?;
+                        self.connection.write_frame(&frame).await?;
+                    } else {
+                        let response = command.apply(&self.db, &mut self.connection).await?;
+                        self.connection.write_frame(&response).await?;
+                    }
+                }
+                HandlerState::Replication(ReplicationEnd::Master(ref mut rx)) => {
+                    tokio::select! {
+                        _result = self.connection.read_frame() => {}
+                        result = rx.recv() => {
+                            self.connection.write_frame(&result?).await?;
+                        }
+                    }
+                }
+                _ => unreachable!(),
             }
         }
     }

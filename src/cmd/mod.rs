@@ -20,7 +20,7 @@ mod xadd;
 mod xrange;
 mod xread;
 
-use crate::connection::{Connection, ConnectionType};
+use crate::connection::Connection;
 use crate::db::Db;
 use crate::frame::Frame;
 use crate::parser::Parse;
@@ -134,45 +134,20 @@ impl Command {
         }
     }
 
-    pub async fn apply(
-        self,
-        db: &Db,
-        dst: &mut Connection,
-        offset: usize,
-        silent: bool,
-    ) -> Result<()> {
-        if let Self::Psync(cmd) = self {
-            dst.write_frame(&cmd.apply(dst)?).await?;
-            dst.write_rdb_file(db.to_rdb_file()).await?;
-            dst.change_to_replica_connection()
-        } else if let Self::Replconf(cmd) = self {
-            let frame = cmd.apply(dst, offset)?;
-            dst.write_frame(&frame).await?;
-            println!("{:?}", frame);
-            Ok(())
-        } else {
-            let frame = {
-                match self {
-                    Self::Exec(cmd) => cmd.apply(db, dst).await?,
-                    Self::Discard(cmd) => cmd.apply(dst)?,
-                    Self::Multi(cmd) => cmd.apply(dst)?,
-                    Self::Replconf(_) => unreachable!(),
-                    Self::Psync(_) => unreachable!(),
-                    _ => {
-                        if dst.is_queueing_commands {
-                            dst.command_queue.push_back(self);
-                            Frame::Simple("QUEUED".to_string())
-                        } else {
-                            self.apply_queueble(db, dst).await?
-                        }
-                    }
+    pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
+        match self {
+            Self::Exec(cmd) => cmd.apply(db, dst).await,
+            Self::Discard(cmd) => cmd.apply(dst),
+            Self::Multi(cmd) => cmd.apply(dst),
+            Self::Replconf(_) => unreachable!(),
+            Self::Psync(_) => unreachable!(),
+            _ => {
+                if dst.is_queueing_commands {
+                    dst.command_queue.push_back(self);
+                    Ok(Frame::Simple("QUEUED".to_string()))
+                } else {
+                    self.apply_queueble(db, dst).await
                 }
-            };
-
-            if !silent {
-                dst.write_frame(&frame).await
-            } else {
-                Ok(())
             }
         }
     }

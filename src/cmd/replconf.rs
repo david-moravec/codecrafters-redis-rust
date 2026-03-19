@@ -29,7 +29,7 @@ impl Replconf {
                     Bytes::from("ACK"),
                     Bytes::from("0"),
                 ]);
-                eprintln!("{:?}", f);
+                // eprintln!("{:?}", f);
                 f
             } else {
                 Frame::Simple("OK".to_string())

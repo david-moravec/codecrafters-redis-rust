@@ -4,7 +4,7 @@ use bytes::{Buf, BytesMut};
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use std::sync::Arc;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::Sender;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
@@ -14,19 +14,13 @@ use crate::cmd::Command;
 use crate::frame::{Frame, FrameError, ToFrame, parse_rdb_file};
 use crate::server::info::ServerInfo;
 
-#[derive(Debug)]
-pub enum ConnectionType {
-    Client(Arc<Sender<Frame>>),
-    FromReplica(Receiver<Frame>),
-}
-
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
     pub(crate) command_queue: VecDeque<Command>,
     pub(crate) is_queueing_commands: bool,
     pub(crate) server_info: Arc<ServerInfo>,
-    pub(crate) connection_type: ConnectionType,
+    pub(crate) frame_broadcast: Arc<Sender<Frame>>,
 }
 
 impl Connection {
@@ -37,20 +31,8 @@ impl Connection {
             command_queue: VecDeque::new(),
             is_queueing_commands: false,
             server_info: info,
-            connection_type: ConnectionType::Client(tx),
+            frame_broadcast: tx,
         }
-    }
-
-    pub fn change_to_replica_connection(&mut self) -> Result<()> {
-        let slave_replication = match self.connection_type {
-            ConnectionType::Client(ref tx) => ConnectionType::FromReplica(tx.subscribe()),
-            ConnectionType::FromReplica(_) => {
-                return Err(anyhow!("Only master connection can become slave"));
-            }
-        };
-
-        self.connection_type = slave_replication;
-        Ok(())
     }
 
     pub async fn read_frame(&mut self) -> Result<Option<Frame>> {
@@ -59,33 +41,13 @@ impl Connection {
                 return Ok(Some(frame));
             }
 
-            if 0 == self.read_to_buf().await? {
+            if 0 == self.stream.read_buf(&mut self.buffer).await? {
                 if self.buffer.is_empty() {
                     return Ok(None);
                 } else {
                     return Err(anyhow!("connecition reset by peer"));
                 }
             }
-        }
-    }
-
-    async fn read_to_buf(&mut self) -> Result<usize> {
-        match self.connection_type {
-            ConnectionType::Client(_) => Ok(self.stream.read_buf(&mut self.buffer).await?),
-            ConnectionType::FromReplica(_) => unreachable!(),
-        }
-    }
-
-    pub async fn propagate_to_replica(&mut self) -> Result<()> {
-        match self.connection_type {
-            ConnectionType::Client(_) => unreachable!(),
-            ConnectionType::FromReplica(ref mut rx) => match rx.recv().await {
-                Ok(ref frame) => {
-                    self.write_frame(frame).await?;
-                    Ok(())
-                }
-                Err(_) => Ok(()),
-            },
         }
     }
 
@@ -111,14 +73,9 @@ impl Connection {
     }
 
     pub fn send_to_replicas_connections(&mut self, frame: Frame) -> Result<()> {
-        match self.connection_type {
-            ConnectionType::Client(ref mut tx) => {
-                // ignore error if no one is subscribed
-                if let Err(_) = tx.send(frame) {};
-                Ok(())
-            }
-            ConnectionType::FromReplica(_) => Ok(()),
-        }
+        // ignore error if no one is subscribed
+        if let Err(_) = self.frame_broadcast.send(frame) {};
+        Ok(())
     }
 
     pub async fn write_frame(&mut self, frame: &Frame) -> Result<()> {
