@@ -121,12 +121,14 @@ impl Handle {
     async fn replicate(&mut self, local_address: SocketAddr) -> Result<()> {
         match &self.state {
             HandlerState::Replication(ReplicationEnd::Slave) => {
+                eprintln!("starting handshake");
                 self.connection
                     .write_frame(&Frame::Array(Some(vec![Frame::BulkString(Bytes::from(
                         "PING",
                     ))])))
                     .await?;
-                let _ = self.connection.read_frame().await?;
+                let frame = self.connection.read_frame().await?;
+                eprintln!("{:?}", frame);
 
                 self.connection
                     .send_command(&[
@@ -135,16 +137,19 @@ impl Handle {
                         format!("{:}", local_address.port()).as_str(),
                     ])
                     .await?;
-                let _ = self.connection.read_frame().await?;
+                let frame = self.connection.read_frame().await?;
+                eprintln!("{:?}", frame);
 
                 self.connection
                     .send_command(&["REPLCONF", "capa", "psync2"])
                     .await?;
-                let _ = self.connection.read_frame().await?;
+                let frame = self.connection.read_frame().await?;
+                eprintln!("{:?}", frame);
 
                 self.connection.send_command(&["PSYNC", "?", "-1"]).await?;
-                self.connection.read_frame().await?;
+                eprintln!("{:?}", self.connection.read_frame().await?);
                 self.connection.read_rdb_file().await?;
+                eprintln!("completing handshake");
 
                 loop {
                     let maybe_frame = self.connection.read_frame().await?;
@@ -159,7 +164,12 @@ impl Handle {
 
                     if let Command::Replconf(cmd) = command {
                         let frame = cmd.apply(&mut self.connection, self.offset)?;
-                        self.connection.write_frame(&frame).await?;
+                        eprintln!(
+                            "responding to {:?} with \n {:?}",
+                            self.connection.stream, frame
+                        );
+                        tokio::join!(self.connection.write_frame(&frame)).0?;
+                        eprintln!("replconf response written {:?}", self.connection.stream);
                     } else {
                         command.apply(&self.db, &mut self.connection).await?;
                     }
@@ -214,7 +224,9 @@ impl Handle {
                 }
                 HandlerState::Replication(ReplicationEnd::Master(ref mut rx)) => {
                     tokio::select! {
-                        _result = self.connection.read_frame() => {}
+                        _result = self.connection.read_frame() => {
+                            // eprintln!("{:?}", _result);
+                        }
                         result = rx.recv() => {
                             self.connection.write_frame(&result?).await?;
                         }
@@ -355,11 +367,6 @@ mod test {
             .send_command(&["PING"])
             .await
             .unwrap();
-        // eprintln!("Ping response: {}")master_replica_connection
-        //     .read_frame()
-        //     .await
-        //     .unwrap()
-        //     .unwrap();
         master_replica_connection
             .send_command(&["REPLCONF", "GETACK", "*"])
             .await

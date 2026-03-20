@@ -29,4 +29,6 @@ async fn main() {
     if let Err(e) = server.run(listener).await {
         eprintln!("When running server following error occured: \n{}", e);
     };
+
+    eprintln!("exiting")
 }
