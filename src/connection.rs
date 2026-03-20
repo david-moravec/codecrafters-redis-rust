@@ -15,7 +15,7 @@ use crate::frame::{Frame, FrameError, ToFrame, parse_rdb_file};
 use crate::server::info::ServerInfo;
 
 pub(crate) struct Connection {
-    pub stream: BufWriter<TcpStream>,
+    stream: BufWriter<TcpStream>,
     buffer: BytesMut,
     pub(crate) command_queue: VecDeque<Command>,
     pub(crate) is_queueing_commands: bool,
@@ -119,14 +119,12 @@ impl Connection {
         Ok(())
     }
 
-    pub async fn write_frame_no_flush(&mut self, frame: &Frame) -> Result<()> {
+    pub async fn write_frame(&mut self, frame: &Frame) -> Result<()> {
         match frame {
             Frame::Array(array_opt) => match array_opt {
                 Some(array) => {
                     self.stream.write_u8(frame.frame_symbol()).await?;
-                    // eprintln!("symbol written");
                     Box::pin(self.write_array(array)).await?;
-                    // eprintln!("array_written");
                 }
                 None => {
                     self.stream.write_u8(frame.frame_symbol()).await?;
@@ -144,11 +142,6 @@ impl Connection {
             _ => self.write_value(frame).await?,
         };
 
-        Ok(())
-    }
-
-    pub async fn write_frame(&mut self, frame: &Frame) -> Result<()> {
-        self.write_frame_no_flush(frame).await?;
         Ok(self.stream.flush().await?)
     }
 
@@ -226,14 +219,10 @@ impl Connection {
     async fn write_array(&mut self, array: &[Frame]) -> Result<()> {
         let len = array.len();
         self.write_u64(len as u64).await?;
-        // eprintln!("array len written {:}", len);
-
         self.stream.write_all(b"\r\n").await?;
-        // eprintln!("rn written");
 
         for i in 0..len {
-            self.write_frame_no_flush(&array[i]).await?;
-            // eprintln!("writting array {:}. value", i);
+            self.write_frame(&array[i]).await?;
         }
 
         Ok(())
@@ -247,7 +236,7 @@ impl Connection {
         for (key, value) in map.iter() {
             self.stream.write_all(key.as_bytes()).await?;
             self.stream.write_all(b"\r\n").await?;
-            self.write_frame_no_flush(value).await?;
+            self.write_frame(value).await?;
         }
 
         Ok(())
