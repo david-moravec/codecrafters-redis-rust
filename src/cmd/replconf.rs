@@ -10,8 +10,8 @@ impl Replconf {
     pub fn parse(parse: &mut Parse) -> anyhow::Result<Self> {
         let mut send_offset = false;
 
-        while let Ok(s) = parse.next_string() {
-            if s.to_lowercase() == "getack" {
+        for _ in 0..2 {
+            if parse.next_string()?.to_lowercase() == "getack" {
                 send_offset = true;
             }
         }
@@ -22,6 +22,7 @@ impl Replconf {
         dst: &mut crate::connection::Connection,
         offset: usize,
     ) -> anyhow::Result<Frame> {
+        // eprintln!("applying replconf");
         let frame = {
             if self.send_offset {
                 let f = Frame::bulk_strings_array(vec![

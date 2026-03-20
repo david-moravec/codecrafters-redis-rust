@@ -7,7 +7,9 @@ pub struct Psync {}
 
 impl Psync {
     pub fn parse(parse: &mut Parse) -> anyhow::Result<Self> {
-        while let Ok(_) = parse.next_string() {}
+        for _ in 0..2 {
+            let s = parse.next_string();
+        }
         Ok(Psync {})
     }
     pub fn apply(self, dst: &crate::connection::Connection) -> anyhow::Result<Frame> {

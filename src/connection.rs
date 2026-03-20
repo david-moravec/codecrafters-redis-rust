@@ -51,14 +51,53 @@ impl Connection {
         }
     }
 
-    pub async fn read_rdb_file(&mut self) -> Result<()> {
-        self.stream.read_buf(&mut self.buffer).await?;
+    fn parse_rdb_file(&mut self) -> Result<Option<Frame>, anyhow::Error> {
         let mut buf = Cursor::new(&self.buffer[..]);
-        parse_rdb_file(&mut buf).await?;
-        let len = buf.position() as usize;
-        self.buffer.advance(len);
-        Ok(())
+
+        match Frame::check_rdb(&mut buf) {
+            Ok(_) => {
+                let len = buf.position() as usize;
+
+                buf.set_position(0);
+
+                let frame = Frame::parse_rdb(&mut buf)?;
+                self.buffer.advance(len);
+
+                Ok(Some(frame))
+            }
+            Err(FrameError::Incomplete) => Ok(None),
+            Err(FrameError::Other(err)) => Err(err),
+        }
     }
+
+    pub async fn read_rdb_file(&mut self) -> Result<()> {
+        eprintln!("Starting to read rdb file");
+        loop {
+            if let Some(_) = self.parse_rdb_file()? {
+                return Ok(());
+            }
+
+            if 0 == self.stream.read_buf(&mut self.buffer).await? {
+                if self.buffer.is_empty() {
+                    return Ok(());
+                } else {
+                    return Err(anyhow!("conneciton reset by peer"));
+                }
+            }
+        }
+    }
+
+    // pub async fn read_rdb_file(&mut self) -> Result<()> {
+    //     eprintln!("reading rdb file");
+    //     self.stream.read_buf(&mut self.buffer).await?;
+    //     let mut buf = Cursor::new(&self.buffer[..]);
+    //     eprintln!("before parsing rdb file\n{:?}", self.buffer);
+    //     parse_rdb_file(&mut buf)?;
+    //     let len = buf.position() as usize;
+    //     self.buffer.advance(len);
+    //     eprintln!("after parsing rdb file\n{:#?}", self.buffer);
+    //     Ok(())
+    // }
 
     pub async fn write_rdb_file(&mut self, rdb_file: Bytes) -> Result<()> {
         self.stream.write_u8(b'$').await?;
@@ -74,7 +113,9 @@ impl Connection {
 
     pub fn send_to_replicas_connections(&mut self, frame: Frame) -> Result<()> {
         // ignore error if no one is subscribed
-        if let Err(_) = self.frame_broadcast.send(frame) {};
+        if let Err(e) = self.frame_broadcast.send(frame) {
+            eprintln!("error senging to replicas");
+        };
         Ok(())
     }
 
@@ -83,9 +124,9 @@ impl Connection {
             Frame::Array(array_opt) => match array_opt {
                 Some(array) => {
                     self.stream.write_u8(frame.frame_symbol()).await?;
-                    eprintln!("symbol written");
+                    // eprintln!("symbol written");
                     Box::pin(self.write_array(array)).await?;
-                    eprintln!("array_written");
+                    // eprintln!("array_written");
                 }
                 None => {
                     self.stream.write_u8(frame.frame_symbol()).await?;
@@ -185,14 +226,14 @@ impl Connection {
     async fn write_array(&mut self, array: &[Frame]) -> Result<()> {
         let len = array.len();
         self.write_u64(len as u64).await?;
-        eprintln!("array len written {:}", len);
+        // eprintln!("array len written {:}", len);
 
         self.stream.write_all(b"\r\n").await?;
-        eprintln!("rn written");
+        // eprintln!("rn written");
 
         for i in 0..len {
             self.write_frame_no_flush(&array[i]).await?;
-            eprintln!("writting array {:}. value", i);
+            // eprintln!("writting array {:}. value", i);
         }
 
         Ok(())

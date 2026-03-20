@@ -51,6 +51,7 @@ pub(crate) enum Frame {
     Attribute(HashMap<String, Frame>),
     Set(Vec<Frame>),
     Push(Vec<Frame>),
+    RdbFile(Bytes),
 }
 
 #[derive(Debug, Error)]
@@ -61,7 +62,7 @@ pub(crate) enum FrameError {
     Other(#[from] anyhow::Error),
 }
 
-pub async fn parse_rdb_file(buf: &mut Cursor<&[u8]>) -> FrameResult<()> {
+pub fn parse_rdb_file(buf: &mut Cursor<&[u8]>) -> FrameResult<()> {
     if get_u8(buf)? != b'$' {
         return Err(FrameError::Other(anyhow!(
             "protocol error; expected '$' at the start of RDB file"
@@ -134,6 +135,39 @@ impl Frame {
             }
             _ => Err(anyhow!("wrong format").into()),
         }
+    }
+
+    pub fn check_rdb(buf: &mut Cursor<&[u8]>) -> FrameResult<()> {
+        if get_u8(buf)? != b'$' {
+            return Err(FrameError::Other(anyhow!(
+                "protocol error; expected '$' at the start of RDB file"
+            )));
+        }
+
+        let len: usize = get_decimal(buf)?
+            .try_into()
+            .map_err(|_| anyhow!("Conversion to usize failed"))?;
+        if buf.remaining() < len {
+            return Err(FrameError::Incomplete);
+        }
+        skip(buf, len)?;
+        Ok(())
+    }
+
+    pub fn parse_rdb(buf: &mut Cursor<&[u8]>) -> FrameResult<Self> {
+        get_u8(buf)?;
+        let len: usize = get_decimal(buf)?
+            .try_into()
+            .map_err(|_| anyhow!("Converions to usize failed"))?;
+        let n = len;
+
+        if buf.remaining() < n {
+            return Err(FrameError::Incomplete);
+        }
+
+        let data = Bytes::copy_from_slice(&buf.chunk()[..len]);
+
+        Ok(Frame::RdbFile(data))
     }
 
     pub fn parse(buf: &mut Cursor<&[u8]>) -> FrameResult<Self> {
@@ -233,7 +267,7 @@ impl Frame {
             Self::Simple(_) => b'+',
             Self::Error(_) => b'-',
             Self::Integer(_) => b':',
-            Self::BulkString(_) => b'$',
+            Self::BulkString(_) | Self::RdbFile(_) => b'$',
             Self::Array(_) => b'*',
             Self::Null => b'_',
             Self::NullBulkString => b'$',

@@ -168,7 +168,7 @@ impl Handle {
                             "responding to {:?} with \n {:?}",
                             self.connection.stream, frame
                         );
-                        tokio::join!(self.connection.write_frame(&frame)).0?;
+                        self.connection.write_frame(&frame).await?;
                         eprintln!("replconf response written {:?}", self.connection.stream);
                     } else {
                         command.apply(&self.db, &mut self.connection).await?;
