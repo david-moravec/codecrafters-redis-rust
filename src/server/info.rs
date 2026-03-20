@@ -18,6 +18,7 @@ impl Display for Role {
 
 pub struct Replication {
     pub(crate) role: Role,
+    pub(crate) count: u64,
 }
 
 impl Replication {
@@ -40,7 +41,7 @@ impl Replication {
             },
         };
 
-        Self { role }
+        Self { role, count: 0 }
     }
 }
 

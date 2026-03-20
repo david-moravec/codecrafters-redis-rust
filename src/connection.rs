@@ -3,7 +3,7 @@ use bytes::Bytes;
 use bytes::{Buf, BytesMut};
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast::Sender;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
@@ -19,12 +19,16 @@ pub(crate) struct Connection {
     buffer: BytesMut,
     pub(crate) command_queue: VecDeque<Command>,
     pub(crate) is_queueing_commands: bool,
-    pub(crate) server_info: Arc<ServerInfo>,
+    pub(crate) server_info: Arc<Mutex<ServerInfo>>,
     pub(crate) frame_broadcast: Arc<Sender<Frame>>,
 }
 
 impl Connection {
-    pub fn new(stream: TcpStream, info: Arc<ServerInfo>, tx: Arc<Sender<Frame>>) -> Connection {
+    pub fn new(
+        stream: TcpStream,
+        info: Arc<Mutex<ServerInfo>>,
+        tx: Arc<Sender<Frame>>,
+    ) -> Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4096),
@@ -165,7 +169,7 @@ impl Connection {
     }
 
     pub fn info_to_frame(&self) -> Frame {
-        self.server_info.replication.to_frame()
+        self.server_info.lock().unwrap().replication.to_frame()
     }
 
     pub async fn send_command(&mut self, args: &[&str]) -> Result<()> {

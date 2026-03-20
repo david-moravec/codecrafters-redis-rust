@@ -1,7 +1,10 @@
 pub mod info;
 
 use anyhow::{Result, anyhow};
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 use tokio::{net::TcpListener, sync::broadcast::Sender};
 
 use crate::db::Db;
@@ -21,7 +24,7 @@ pub struct ReplicationBroadcast {
 
 pub struct Server {
     db: Db,
-    info: Arc<ServerInfo>,
+    info: Arc<Mutex<ServerInfo>>,
     replication_broadcast: ReplicationBroadcast,
 }
 
@@ -33,7 +36,7 @@ impl Server {
 
         Self {
             db: Db::new(),
-            info: Arc::new(info),
+            info: Arc::new(Mutex::new(info)),
             replication_broadcast: ReplicationBroadcast { tx: Arc::new(tx) },
         }
     }
@@ -44,7 +47,7 @@ impl Server {
             self.info.clone(),
             self.replication_broadcast.tx.clone(),
         );
-        let mut handler = Handle::new_slave_handler(self.db.clone(), connection);
+        let mut handler = Handle::new_slave_handler(self.db.clone(), connection, self.info.clone());
 
         let local_address = listener.local_addr()?;
 
@@ -58,8 +61,13 @@ impl Server {
     }
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
-        if let Role::Slave(ref addr) = self.info.replication.role {
-            self.replicate(&listener, addr).await?;
+        let master_addres = match self.info.lock().unwrap().replication.role {
+            Role::Slave(ref addr) => Some(addr.clone()),
+            Role::Master { .. } => None,
+        };
+
+        if master_addres.is_some() {
+            self.replicate(&listener, &master_addres.unwrap()).await?;
         }
 
         loop {
@@ -69,7 +77,7 @@ impl Server {
                 self.info.clone(),
                 self.replication_broadcast.tx.clone(),
             );
-            let handler = Handle::new(self.db.clone(), connection);
+            let handler = Handle::new(self.db.clone(), connection, self.info.clone());
 
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
@@ -97,24 +105,31 @@ pub struct Handle {
     connection: Connection,
     offset: usize,
     state: HandlerState,
+    server_info: Arc<Mutex<ServerInfo>>,
 }
 
 impl Handle {
-    pub fn new(db: Db, connection: Connection) -> Self {
+    pub fn new(db: Db, connection: Connection, server_info: Arc<Mutex<ServerInfo>>) -> Self {
         Handle {
             db,
             connection,
             offset: 0,
             state: HandlerState::Client,
+            server_info,
         }
     }
 
-    pub fn new_slave_handler(db: Db, connection: Connection) -> Self {
+    pub fn new_slave_handler(
+        db: Db,
+        connection: Connection,
+        server_info: Arc<Mutex<ServerInfo>>,
+    ) -> Self {
         Handle {
             db,
             connection,
             offset: 0,
             state: HandlerState::Replication(ReplicationEnd::Slave),
+            server_info,
         }
     }
 
@@ -201,11 +216,18 @@ impl Handle {
                         self.state = HandlerState::Replication(ReplicationEnd::Master(
                             dst.frame_broadcast.subscribe(),
                         ));
+                        {
+                            self.server_info.lock().unwrap().replication.count += 1;
+                        }
                     } else if let Command::Replconf(cmd) = command {
                         let frame = cmd.apply(&mut self.connection, self.offset)?;
                         self.connection.write_frame(&frame).await?;
                     } else if let Command::Wait(cmd) = command {
-                        let frame = cmd.apply()?;
+                        let replica_count: u64;
+                        {
+                            replica_count = self.server_info.lock().unwrap().replication.count;
+                        }
+                        let frame = cmd.apply(replica_count)?;
                         self.connection.write_frame(&frame).await?;
                     } else {
                         let response = command.apply(&self.db, &mut self.connection).await?;
@@ -320,7 +342,7 @@ mod test {
 
         let mut master_replica_connection = Connection::new(
             master_replica_stream,
-            Arc::new(ServerInfo::new(None)),
+            Arc::new(Mutex::new(ServerInfo::new(None))),
             Arc::new(tx),
         );
 

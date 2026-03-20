@@ -13,7 +13,7 @@ impl Psync {
         Ok(Psync {})
     }
     pub fn apply(self, dst: &crate::connection::Connection) -> anyhow::Result<Frame> {
-        let frame = match &dst.server_info.replication.role {
+        let frame = match &dst.server_info.lock().unwrap().replication.role {
             crate::server::info::Role::Master {
                 repl_id,
                 repl_offset,

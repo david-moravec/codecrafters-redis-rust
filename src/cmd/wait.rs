@@ -16,8 +16,8 @@ impl Wait {
             timeout,
         })
     }
-    pub fn apply(self) -> anyhow::Result<Frame> {
-        let frame = { Frame::Integer(0) };
+    pub fn apply(self, replica_count: u64) -> anyhow::Result<Frame> {
+        let frame = { Frame::Integer(replica_count) };
         Ok(frame)
     }
 }
