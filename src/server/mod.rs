@@ -15,7 +15,7 @@ use tokio::sync::broadcast;
 use crate::cmd::Command;
 use crate::connection::Connection;
 use crate::frame::Frame;
-use info::{Role, ServerInfo};
+use info::{ReplicationInfo, Role, ServerInfo};
 
 #[derive(Clone)]
 pub struct ReplicationBroadcast {
@@ -24,19 +24,18 @@ pub struct ReplicationBroadcast {
 
 pub struct Server {
     db: Db,
-    info: Arc<Mutex<ServerInfo>>,
+    info: ServerInfo,
     replication_broadcast: ReplicationBroadcast,
 }
 
 impl Server {
-    pub fn new(replica_of: Option<String>) -> Self {
-        let info = ServerInfo::new(replica_of);
-
+    pub fn new(master_address: Option<String>) -> Self {
+        let info = ServerInfo::new(master_address);
         let (tx, _) = broadcast::channel(16);
 
         Self {
             db: Db::new(),
-            info: Arc::new(Mutex::new(info)),
+            info,
             replication_broadcast: ReplicationBroadcast { tx: Arc::new(tx) },
         }
     }
@@ -61,9 +60,9 @@ impl Server {
     }
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
-        let master_addres = match self.info.lock().unwrap().replication.role {
-            Role::Slave(ref addr) => Some(addr.clone()),
-            Role::Master { .. } => None,
+        let master_addres = match self.info.replication_role() {
+            &Role::Slave(ref addr) => Some(addr.clone()),
+            &Role::Master { .. } => None,
         };
 
         if master_addres.is_some() {
@@ -105,11 +104,11 @@ pub struct Handle {
     connection: Connection,
     offset: usize,
     state: HandlerState,
-    server_info: Arc<Mutex<ServerInfo>>,
+    server_info: ServerInfo,
 }
 
 impl Handle {
-    pub fn new(db: Db, connection: Connection, server_info: Arc<Mutex<ServerInfo>>) -> Self {
+    pub fn new(db: Db, connection: Connection, server_info: ServerInfo) -> Self {
         Handle {
             db,
             connection,
@@ -119,11 +118,7 @@ impl Handle {
         }
     }
 
-    pub fn new_slave_handler(
-        db: Db,
-        connection: Connection,
-        server_info: Arc<Mutex<ServerInfo>>,
-    ) -> Self {
+    pub fn new_slave_handler(db: Db, connection: Connection, server_info: ServerInfo) -> Self {
         Handle {
             db,
             connection,
@@ -216,17 +211,12 @@ impl Handle {
                         self.state = HandlerState::Replication(ReplicationEnd::Master(
                             dst.frame_broadcast.subscribe(),
                         ));
-                        {
-                            self.server_info.lock().unwrap().replication.count += 1;
-                        }
+                        self.server_info.increment_replica_count()?;
                     } else if let Command::Replconf(cmd) = command {
                         let frame = cmd.apply(&mut self.connection, self.offset)?;
                         self.connection.write_frame(&frame).await?;
                     } else if let Command::Wait(cmd) = command {
-                        let replica_count: u64;
-                        {
-                            replica_count = self.server_info.lock().unwrap().replication.count;
-                        }
+                        let replica_count = self.server_info.replica_count()?;
                         let frame = cmd.apply(replica_count)?;
                         self.connection.write_frame(&frame).await?;
                     } else {
@@ -251,8 +241,6 @@ impl Handle {
 #[cfg(test)]
 mod test {
     use std::time::Duration;
-
-    use tokio::io::AsyncWriteExt;
 
     use super::*;
 
@@ -340,11 +328,8 @@ mod test {
 
         let tx: Sender<Frame> = broadcast::channel(16).0;
 
-        let mut master_replica_connection = Connection::new(
-            master_replica_stream,
-            Arc::new(Mutex::new(ServerInfo::new(None))),
-            Arc::new(tx),
-        );
+        let mut master_replica_connection =
+            Connection::new(master_replica_stream, ServerInfo::new(None), Arc::new(tx));
 
         replication_handshake(&mut master_replica_connection)
             .await
@@ -377,11 +362,6 @@ mod test {
             .send_command(&["PING"])
             .await
             .unwrap();
-        // eprintln!("Ping response: {}")master_replica_connection
-        //     .read_frame()
-        //     .await
-        //     .unwrap()
-        //     .unwrap();
         master_replica_connection
             .send_command(&["REPLCONF", "GETACK", "*"])
             .await

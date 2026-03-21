@@ -1,7 +1,10 @@
 use crate::frame::{Frame, ToFrame};
+use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use std::fmt::Display;
+use std::sync::{Arc, Mutex};
 
+#[derive(Debug)]
 pub(crate) enum Role {
     Master { repl_id: String, repl_offset: usize },
     Slave(String),
@@ -16,12 +19,13 @@ impl Display for Role {
     }
 }
 
-pub struct Replication {
+#[derive(Debug)]
+pub struct ReplicationInfo {
     pub(crate) role: Role,
-    pub(crate) count: u64,
+    pub(crate) count: Mutex<u64>,
 }
 
-impl Replication {
+impl ReplicationInfo {
     fn new(replica_of: Option<String>) -> Self {
         let role = match replica_of {
             Some(s) => {
@@ -41,11 +45,14 @@ impl Replication {
             },
         };
 
-        Self { role, count: 0 }
+        Self {
+            role,
+            count: Mutex::new(0),
+        }
     }
 }
 
-impl ToFrame for Replication {
+impl ToFrame for ReplicationInfo {
     fn to_frame(&self) -> Frame {
         match self.role {
             Role::Slave(_) => Frame::BulkString(Bytes::from(format!("role:{}", self.role))),
@@ -60,14 +67,54 @@ impl ToFrame for Replication {
     }
 }
 
+#[derive(Debug, Clone)]
+struct Shared {
+    replication: Arc<ReplicationInfo>,
+}
+
+impl Shared {
+    fn new(master_address: Option<String>) -> Self {
+        Shared {
+            replication: Arc::new(ReplicationInfo::new(master_address)),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ServerInfo {
-    pub replication: Replication,
+    shared: Shared,
 }
 
 impl ServerInfo {
-    pub fn new(replica_of: Option<String>) -> Self {
-        let replication = Replication::new(replica_of);
+    pub fn new(master_address: Option<String>) -> Self {
+        Self {
+            shared: Shared::new(master_address),
+        }
+    }
 
-        Self { replication }
+    pub(crate) fn replication_role(&self) -> &Role {
+        &self.shared.replication.role
+    }
+
+    pub(crate) fn increment_replica_count(&self) -> Result<()> {
+        if let Role::Master { .. } = self.shared.replication.role {
+            Ok(*self.shared.replication.count.lock().unwrap() += 1)
+        } else {
+            Err(anyhow!("slaves cannot have replicas"))
+        }
+    }
+
+    pub(crate) fn replica_count(&self) -> Result<u64> {
+        if let Role::Master { .. } = self.shared.replication.role {
+            Ok(*self.shared.replication.count.lock().unwrap())
+        } else {
+            Err(anyhow!("slaves cannot have replicas"))
+        }
+    }
+}
+
+impl ToFrame for ServerInfo {
+    fn to_frame(&self) -> Frame {
+        self.shared.replication.to_frame()
     }
 }

@@ -12,29 +12,25 @@ use tokio::{
 
 use crate::cmd::Command;
 use crate::frame::{Frame, FrameError, ToFrame, parse_rdb_file};
-use crate::server::info::ServerInfo;
+use crate::server::info::{ReplicationInfo, ServerInfo};
 
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,
     pub(crate) command_queue: VecDeque<Command>,
     pub(crate) is_queueing_commands: bool,
-    pub(crate) server_info: Arc<Mutex<ServerInfo>>,
+    pub(crate) server_info: ServerInfo,
     pub(crate) frame_broadcast: Arc<Sender<Frame>>,
 }
 
 impl Connection {
-    pub fn new(
-        stream: TcpStream,
-        info: Arc<Mutex<ServerInfo>>,
-        tx: Arc<Sender<Frame>>,
-    ) -> Connection {
+    pub fn new(stream: TcpStream, server_info: ServerInfo, tx: Arc<Sender<Frame>>) -> Connection {
         Connection {
             stream: BufWriter::new(stream),
             buffer: BytesMut::with_capacity(4096),
             command_queue: VecDeque::new(),
             is_queueing_commands: false,
-            server_info: info,
+            server_info,
             frame_broadcast: tx,
         }
     }
@@ -117,7 +113,7 @@ impl Connection {
 
     pub fn send_to_replicas_connections(&mut self, frame: Frame) -> Result<()> {
         // ignore error if no one is subscribed
-        if let Err(e) = self.frame_broadcast.send(frame) {
+        if let Err(_) = self.frame_broadcast.send(frame) {
             eprintln!("error senging to replicas");
         };
         Ok(())
@@ -169,7 +165,7 @@ impl Connection {
     }
 
     pub fn info_to_frame(&self) -> Frame {
-        self.server_info.lock().unwrap().replication.to_frame()
+        self.server_info.to_frame()
     }
 
     pub async fn send_command(&mut self, args: &[&str]) -> Result<()> {
