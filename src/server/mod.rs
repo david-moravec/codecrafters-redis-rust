@@ -233,17 +233,20 @@ impl Handle {
                         self.connection.write_frame(&response).await?;
                     }
                 }
+                // once changed to master end replica connection
+                // it cannot go back so we can loop to avoid unnecessary
+                // outer loop
                 HandlerState::Replication(ReplicationEnd::Master {
                     ref mut command_propagation_rx,
                     ..
-                }) => {
+                }) => loop {
                     tokio::select! {
                         _result = self.connection.read_frame() => {}
                         result = command_propagation_rx.recv() => {
                             self.connection.write_frame(&result?).await?;
                         }
                     }
-                }
+                },
                 _ => unreachable!(),
             }
         }
