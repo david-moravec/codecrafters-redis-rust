@@ -276,9 +276,19 @@ impl Handle {
                         let frame = cmd.apply(&mut self.connection, self.offset)?;
                         self.connection.write_frame(&frame).await?;
                     } else if let Command::Wait(cmd) = command {
-                        let replica_count = self.server_info.replica_count()?;
-                        let frame = cmd.apply(replica_count)?;
-                        self.connection.write_frame(&frame).await?;
+                        let (tx, rx) = oneshot::channel();
+                        self.query_tx
+                            .send(Query::Wait {
+                                count: cmd.replica_count,
+                                response: tx,
+                            })
+                            .await?;
+
+                        // TODO: timeout
+                        let response = rx.await?;
+                        self.connection
+                            .write_frame(&Frame::Integer(response))
+                            .await?;
                     } else {
                         let response = command.apply(&self.db, &mut self.connection).await?;
                         self.connection.write_frame(&response).await?;

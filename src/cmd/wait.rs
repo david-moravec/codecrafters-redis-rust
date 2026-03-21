@@ -1,10 +1,8 @@
-use crate::frame::Frame;
 use crate::parser::Parse;
-use bytes::Bytes;
 
 pub struct Wait {
-    replica_count: u64,
-    timeout: u64,
+    pub replica_count: u64,
+    pub timeout: u64,
 }
 
 impl Wait {
@@ -15,9 +13,5 @@ impl Wait {
             replica_count,
             timeout,
         })
-    }
-    pub fn apply(self, replica_count: u64) -> anyhow::Result<Frame> {
-        let frame = { Frame::Integer(replica_count) };
-        Ok(frame)
     }
 }
