@@ -3,6 +3,7 @@ use anyhow::{Result, anyhow};
 use bytes::Bytes;
 use std::fmt::Display;
 use std::sync::{Arc, Mutex};
+use tokio::sync::{broadcast, mpsc};
 
 #[derive(Debug)]
 pub(crate) enum Role {
@@ -67,15 +68,25 @@ impl ToFrame for ReplicationInfo {
     }
 }
 
+#[derive(Clone)]
+pub(super) struct ServerCommand {
+    pub(super) cmd: Frame,
+    pub(super) reponse_channel: mpsc::Sender<Frame>,
+}
+
 #[derive(Debug, Clone)]
 struct Shared {
     replication: Arc<ReplicationInfo>,
+    server_broadcast: Arc<broadcast::Sender<ServerCommand>>,
 }
 
 impl Shared {
     fn new(master_address: Option<String>) -> Self {
+        let (tx, _) = broadcast::channel(16);
+
         Shared {
             replication: Arc::new(ReplicationInfo::new(master_address)),
+            server_broadcast: Arc::new(tx),
         }
     }
 }
@@ -110,6 +121,10 @@ impl ServerInfo {
         } else {
             Err(anyhow!("slaves cannot have replicas"))
         }
+    }
+
+    pub(super) fn server_broadcast_subscribe(&self) -> broadcast::Receiver<ServerCommand> {
+        self.shared.server_broadcast.subscribe()
     }
 }
 

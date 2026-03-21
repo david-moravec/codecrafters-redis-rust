@@ -5,7 +5,10 @@ use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
-use tokio::{net::TcpListener, sync::broadcast::Sender};
+use tokio::{
+    net::TcpListener,
+    sync::{broadcast::Sender, mpsc, oneshot},
+};
 
 use crate::db::Db;
 use bytes::Bytes;
@@ -15,11 +18,11 @@ use tokio::sync::broadcast;
 use crate::cmd::Command;
 use crate::connection::Connection;
 use crate::frame::Frame;
-use info::{ReplicationInfo, Role, ServerInfo};
+use info::{Role, ServerCommand, ServerInfo};
 
 #[derive(Clone)]
-pub struct ReplicationBroadcast {
-    tx: Arc<Sender<Frame>>,
+struct ReplicationBroadcast {
+    command_propagation: Arc<Sender<Frame>>,
 }
 
 pub struct Server {
@@ -36,7 +39,9 @@ impl Server {
         Self {
             db: Db::new(),
             info,
-            replication_broadcast: ReplicationBroadcast { tx: Arc::new(tx) },
+            replication_broadcast: ReplicationBroadcast {
+                command_propagation: Arc::new(tx),
+            },
         }
     }
 
@@ -44,7 +49,7 @@ impl Server {
         let connection = Connection::new(
             TcpStream::connect(addr).await?,
             self.info.clone(),
-            self.replication_broadcast.tx.clone(),
+            self.replication_broadcast.command_propagation.clone(),
         );
         let mut handler = Handle::new_slave_handler(self.db.clone(), connection, self.info.clone());
 
@@ -74,7 +79,7 @@ impl Server {
             let connection = Connection::new(
                 socket.0,
                 self.info.clone(),
-                self.replication_broadcast.tx.clone(),
+                self.replication_broadcast.command_propagation.clone(),
             );
             let handler = Handle::new(self.db.clone(), connection, self.info.clone());
 
@@ -89,7 +94,10 @@ impl Server {
 
 #[derive(Debug)]
 enum ReplicationEnd {
-    Master(broadcast::Receiver<Frame>),
+    Master {
+        command_propagation_rx: broadcast::Receiver<Frame>,
+        server_command_rx: broadcast::Receiver<ServerCommand>,
+    },
     Slave,
 }
 
@@ -208,9 +216,10 @@ impl Handle {
                         dst.write_frame(&cmd.apply(dst)?).await?;
                         dst.write_rdb_file(self.db.to_rdb_file()).await?;
 
-                        self.state = HandlerState::Replication(ReplicationEnd::Master(
-                            dst.frame_broadcast.subscribe(),
-                        ));
+                        self.state = HandlerState::Replication(ReplicationEnd::Master {
+                            command_propagation_rx: dst.frame_broadcast.subscribe(),
+                            server_command_rx: self.server_info.server_broadcast_subscribe(),
+                        });
                         self.server_info.increment_replica_count()?;
                     } else if let Command::Replconf(cmd) = command {
                         let frame = cmd.apply(&mut self.connection, self.offset)?;
@@ -224,10 +233,13 @@ impl Handle {
                         self.connection.write_frame(&response).await?;
                     }
                 }
-                HandlerState::Replication(ReplicationEnd::Master(ref mut rx)) => {
+                HandlerState::Replication(ReplicationEnd::Master {
+                    ref mut command_propagation_rx,
+                    ..
+                }) => {
                     tokio::select! {
                         _result = self.connection.read_frame() => {}
-                        result = rx.recv() => {
+                        result = command_propagation_rx.recv() => {
                             self.connection.write_frame(&result?).await?;
                         }
                     }
