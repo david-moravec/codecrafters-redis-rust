@@ -1,15 +1,17 @@
 pub mod info;
 
 use anyhow::{Result, anyhow};
-use std::{net::SocketAddr, sync::Arc};
-use tokio::{
-    net::TcpListener,
-    sync::{OnceCell, broadcast::Sender, mpsc, oneshot},
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    thread,
+    time::{Duration, Instant},
 };
+use tokio::sync::{broadcast::Sender, mpsc, oneshot};
 
 use crate::db::Db;
 use bytes::Bytes;
-use tokio::net::TcpStream;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 
 use crate::cmd::Command;
@@ -26,8 +28,6 @@ pub struct Server {
     db: Db,
     info: ServerInfo,
     replication_broadcast: ReplicationBroadcast,
-    from_handles_rx: OnceCell<mpsc::Receiver<Frame>>,
-    query_rx: OnceCell<mpsc::Receiver<Query>>,
 }
 
 impl Server {
@@ -41,8 +41,54 @@ impl Server {
             replication_broadcast: ReplicationBroadcast {
                 command_propagation: Arc::new(tx),
             },
-            from_handles_rx: OnceCell::new(),
-            query_rx: OnceCell::new(),
+        }
+    }
+    async fn respond_to_queries(
+        info: ServerInfo,
+        mut query_rx: mpsc::Receiver<Query>,
+        mut handle_response_rx: mpsc::Receiver<HandleResponse>,
+        handle_frame_tx: Arc<broadcast::Sender<Frame>>,
+    ) -> Result<()> {
+        loop {
+            match query_rx
+                .recv()
+                .await
+                .ok_or(anyhow!("query channel closed"))?
+            {
+                Query::Wait {
+                    count,
+                    timeout,
+                    response,
+                } => {
+                    let replica_count = info.replica_count()?;
+
+                    if replica_count == 0 {
+                        if let Err(_) = response.send(0) {};
+                    } else {
+                        handle_frame_tx.send(Frame::bulk_strings_array_from_str(vec![
+                            "REPLCONF", "GETACK", "*",
+                        ]))?;
+
+                        let mut hit_count = 0;
+                        let deadline = Instant::now() + timeout;
+
+                        loop {
+                            let remaining = deadline.saturating_duration_since(Instant::now());
+
+                            if remaining.is_zero() {
+                                break;
+                            }
+
+                            match tokio::time::timeout(remaining, handle_response_rx.recv()).await {
+                                Ok(_) => hit_count += 1,
+                                Err(_) => break,
+                            };
+                        }
+
+                        if let Err(_) = response.send(hit_count) {};
+                    }
+                }
+            }
         }
     }
 
@@ -50,7 +96,6 @@ impl Server {
         &self,
         listener: &TcpListener,
         addr: &str,
-        to_server_tx: mpsc::Sender<Frame>,
         query_tx: mpsc::Sender<Query>,
     ) -> Result<()> {
         let connection = Connection::new(
@@ -58,13 +103,8 @@ impl Server {
             self.info.clone(),
             self.replication_broadcast.command_propagation.clone(),
         );
-        let mut handler = Handle::new_slave_handler(
-            self.db.clone(),
-            connection,
-            self.info.clone(),
-            to_server_tx,
-            query_tx,
-        );
+        let mut handler =
+            Handle::new_slave_handler(self.db.clone(), connection, self.info.clone(), query_tx);
 
         let local_address = listener.local_addr()?;
 
@@ -78,11 +118,8 @@ impl Server {
     }
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
-        let (tx, rx) = mpsc::channel(100);
-        let (tx1, rx1) = mpsc::channel(100);
-
-        self.from_handles_rx.set(rx).unwrap();
-        self.query_rx.set(rx1).unwrap();
+        // let (handle_response_tx, handle_response_rx) = mpsc::channel(100);
+        let (query_tx, query_rx) = mpsc::channel(100);
 
         let master_addres = match self.info.replication_role() {
             &Role::Slave(ref addr) => Some(addr.clone()),
@@ -90,9 +127,18 @@ impl Server {
         };
 
         if master_addres.is_some() {
-            self.replicate(&listener, &master_addres.unwrap(), tx.clone(), tx1.clone())
+            self.replicate(&listener, &master_addres.unwrap(), query_tx.clone())
                 .await?;
         }
+
+        let info = self.info.clone();
+        let handle_frame_tx = self.replication_broadcast.command_propagation.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = Self::respond_to_queries(info, query_rx, handle_frame_tx).await {
+                eprintln!("during handling queries followign error occured; {:}", e);
+            }
+        });
 
         loop {
             let socket = listener.accept().await?;
@@ -105,8 +151,7 @@ impl Server {
                 self.db.clone(),
                 connection,
                 self.info.clone(),
-                tx.clone(),
-                tx1.clone(),
+                query_tx.clone(),
             );
 
             tokio::spawn(async move {
@@ -127,6 +172,8 @@ enum ReplicationEnd {
     Slave,
 }
 
+type HandleResponse = Frame;
+
 #[derive(Debug)]
 enum HandlerState {
     Client,
@@ -136,6 +183,7 @@ enum HandlerState {
 pub enum Query {
     Wait {
         count: u64,
+        timeout: Duration,
         response: oneshot::Sender<u64>,
     },
 }
@@ -146,7 +194,6 @@ pub struct Handle {
     offset: usize,
     state: HandlerState,
     server_info: ServerInfo,
-    to_server_tx: mpsc::Sender<Frame>,
     query_tx: mpsc::Sender<Query>,
 }
 
@@ -155,7 +202,6 @@ impl Handle {
         db: Db,
         connection: Connection,
         server_info: ServerInfo,
-        to_server_tx: mpsc::Sender<Frame>,
         query_tx: mpsc::Sender<Query>,
     ) -> Self {
         Handle {
@@ -164,7 +210,6 @@ impl Handle {
             offset: 0,
             state: HandlerState::Client,
             server_info,
-            to_server_tx,
             query_tx,
         }
     }
@@ -173,7 +218,6 @@ impl Handle {
         db: Db,
         connection: Connection,
         server_info: ServerInfo,
-        to_server_tx: mpsc::Sender<Frame>,
         query_tx: mpsc::Sender<Query>,
     ) -> Self {
         Handle {
@@ -182,7 +226,6 @@ impl Handle {
             offset: 0,
             state: HandlerState::Replication(ReplicationEnd::Slave),
             server_info,
-            to_server_tx,
             query_tx,
         }
     }
@@ -276,19 +319,8 @@ impl Handle {
                         let frame = cmd.apply(&mut self.connection, self.offset)?;
                         self.connection.write_frame(&frame).await?;
                     } else if let Command::Wait(cmd) = command {
-                        let (tx, rx) = oneshot::channel();
-                        self.query_tx
-                            .send(Query::Wait {
-                                count: cmd.replica_count,
-                                response: tx,
-                            })
-                            .await?;
-
-                        // TODO: timeout
-                        let response = rx.await?;
-                        self.connection
-                            .write_frame(&Frame::Integer(response))
-                            .await?;
+                        let frame = cmd.apply(&mut self.query_tx).await?;
+                        self.connection.write_frame(&frame).await?;
                     } else {
                         let response = command.apply(&self.db, &mut self.connection).await?;
                         self.connection.write_frame(&response).await?;
@@ -302,7 +334,7 @@ impl Handle {
                     ref mut server_command_rx,
                 }) => loop {
                     tokio::select! {
-                        _result = self.connection.read_frame() => {}
+                        result = self.connection.read_frame() => {}
                         propagated_frame = command_propagation_rx.recv() => {
                             self.connection.write_frame(&propagated_frame?).await?;
                         }
@@ -312,7 +344,6 @@ impl Handle {
                             let response = self.connection.read_frame().await?;
 
                             if response.is_some() {
-                                eprintln!("{:?}", response);
                                 server_cmd.response_channel.send(response.unwrap()).await?
                             }
 
@@ -472,5 +503,29 @@ mod test {
                 assert!(false)
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_wait_no_replicas() {
+        let addr = start_master("0").await;
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let tx: Sender<Frame> = broadcast::channel(16).0;
+        let mut connection = Connection::new(stream, ServerInfo::new(None), Arc::new(tx));
+
+        connection
+            .send_command(&["WAIT", "0", "500"])
+            .await
+            .unwrap();
+
+        let maybe_frame = connection.read_frame().await.unwrap();
+        let f = match maybe_frame {
+            Some(f) => f,
+            None => panic!("nothing to read"),
+        };
+
+        eprintln!("{:?}", f);
+        eprintln!("{:?}", f.to_bytes());
+
+        assert!(f.to_bytes().to_vec() == b":0\r\n");
     }
 }

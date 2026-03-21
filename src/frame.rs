@@ -261,6 +261,13 @@ impl Frame {
             args.into_iter().map(|b| Frame::BulkString(b)).collect(),
         ))
     }
+    pub fn bulk_strings_array_from_str(args: Vec<&str>) -> Frame {
+        Frame::Array(Some(
+            args.into_iter()
+                .map(|b| Frame::BulkString(Bytes::from(b.to_string())))
+                .collect(),
+        ))
+    }
 
     pub(crate) fn frame_symbol(&self) -> u8 {
         match self {
@@ -294,7 +301,7 @@ impl Frame {
             Self::Error(val) => {
                 bytes_mut.put_slice(val.as_bytes());
             }
-            Self::Integer(val) => bytes_mut.put_u64(*val),
+            Self::Integer(val) => bytes_mut.put_slice(format!("{:}", val).as_bytes()),
             Self::BulkString(bytes) => {
                 bytes_mut.put_slice(format!("{:}", bytes.len()).as_bytes());
                 bytes_mut.put_slice(b"\r\n");

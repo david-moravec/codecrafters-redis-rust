@@ -1,4 +1,9 @@
-use crate::parser::Parse;
+use std::time::Duration;
+
+use anyhow::Result;
+use tokio::sync::{mpsc, oneshot};
+
+use crate::{frame::Frame, parser::Parse, server::Query};
 
 #[derive(Debug)]
 pub struct Wait {
@@ -14,5 +19,20 @@ impl Wait {
             replica_count,
             timeout,
         })
+    }
+
+    pub async fn apply(self, query_tx: &mut mpsc::Sender<Query>) -> Result<Frame> {
+        let (tx, rx) = oneshot::channel();
+        query_tx
+            .send(Query::Wait {
+                count: self.replica_count,
+                timeout: Duration::from_millis(self.timeout),
+                response: tx,
+            })
+            .await?;
+
+        // TODO: timeout
+        let response = rx.await?;
+        Ok(Frame::Integer(response))
     }
 }
