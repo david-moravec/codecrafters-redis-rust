@@ -46,6 +46,10 @@ impl Server {
         }
     }
 
+    async fn respond_to_queries(&self) {
+        tokio::spawn(future)
+    }
+
     async fn replicate(
         &self,
         listener: &TcpListener,
