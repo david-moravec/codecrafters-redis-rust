@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     net::TcpListener,
-    sync::{OnceCell, broadcast::Sender, mpsc},
+    sync::{OnceCell, broadcast::Sender, mpsc, oneshot},
 };
 
 use crate::db::Db;
@@ -27,6 +27,7 @@ pub struct Server {
     info: ServerInfo,
     replication_broadcast: ReplicationBroadcast,
     from_handles_rx: OnceCell<mpsc::Receiver<Frame>>,
+    query_rx: OnceCell<mpsc::Receiver<Query>>,
 }
 
 impl Server {
@@ -41,6 +42,7 @@ impl Server {
                 command_propagation: Arc::new(tx),
             },
             from_handles_rx: OnceCell::new(),
+            query_rx: OnceCell::new(),
         }
     }
 
@@ -49,14 +51,20 @@ impl Server {
         listener: &TcpListener,
         addr: &str,
         to_server_tx: mpsc::Sender<Frame>,
+        query_tx: mpsc::Sender<Query>,
     ) -> Result<()> {
         let connection = Connection::new(
             TcpStream::connect(addr).await?,
             self.info.clone(),
             self.replication_broadcast.command_propagation.clone(),
         );
-        let mut handler =
-            Handle::new_slave_handler(self.db.clone(), connection, self.info.clone(), to_server_tx);
+        let mut handler = Handle::new_slave_handler(
+            self.db.clone(),
+            connection,
+            self.info.clone(),
+            to_server_tx,
+            query_tx,
+        );
 
         let local_address = listener.local_addr()?;
 
@@ -71,8 +79,10 @@ impl Server {
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
         let (tx, rx) = mpsc::channel(100);
+        let (tx1, rx1) = mpsc::channel(100);
 
         self.from_handles_rx.set(rx).unwrap();
+        self.query_rx.set(rx1).unwrap();
 
         let master_addres = match self.info.replication_role() {
             &Role::Slave(ref addr) => Some(addr.clone()),
@@ -80,7 +90,7 @@ impl Server {
         };
 
         if master_addres.is_some() {
-            self.replicate(&listener, &master_addres.unwrap(), tx.clone())
+            self.replicate(&listener, &master_addres.unwrap(), tx.clone(), tx1.clone())
                 .await?;
         }
 
@@ -91,7 +101,13 @@ impl Server {
                 self.info.clone(),
                 self.replication_broadcast.command_propagation.clone(),
             );
-            let handler = Handle::new(self.db.clone(), connection, self.info.clone(), tx.clone());
+            let handler = Handle::new(
+                self.db.clone(),
+                connection,
+                self.info.clone(),
+                tx.clone(),
+                tx1.clone(),
+            );
 
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
@@ -117,6 +133,13 @@ enum HandlerState {
     Replication(ReplicationEnd),
 }
 
+pub enum Query {
+    Wait {
+        count: u64,
+        response: oneshot::Sender<u64>,
+    },
+}
+
 pub struct Handle {
     pub(crate) db: Db,
     connection: Connection,
@@ -124,6 +147,7 @@ pub struct Handle {
     state: HandlerState,
     server_info: ServerInfo,
     to_server_tx: mpsc::Sender<Frame>,
+    query_tx: mpsc::Sender<Query>,
 }
 
 impl Handle {
@@ -132,6 +156,7 @@ impl Handle {
         connection: Connection,
         server_info: ServerInfo,
         to_server_tx: mpsc::Sender<Frame>,
+        query_tx: mpsc::Sender<Query>,
     ) -> Self {
         Handle {
             db,
@@ -140,6 +165,7 @@ impl Handle {
             state: HandlerState::Client,
             server_info,
             to_server_tx,
+            query_tx,
         }
     }
 
@@ -148,6 +174,7 @@ impl Handle {
         connection: Connection,
         server_info: ServerInfo,
         to_server_tx: mpsc::Sender<Frame>,
+        query_tx: mpsc::Sender<Query>,
     ) -> Self {
         Handle {
             db,
@@ -156,6 +183,7 @@ impl Handle {
             state: HandlerState::Replication(ReplicationEnd::Slave),
             server_info,
             to_server_tx,
+            query_tx,
         }
     }
 
