@@ -71,7 +71,7 @@ impl ToFrame for ReplicationInfo {
 #[derive(Clone)]
 pub(super) struct ServerCommand {
     pub(super) cmd: Frame,
-    pub(super) reponse_channel: mpsc::Sender<Frame>,
+    pub(super) response_channel: mpsc::Sender<Frame>,
 }
 
 #[derive(Debug, Clone)]

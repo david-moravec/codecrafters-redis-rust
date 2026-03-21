@@ -1,13 +1,10 @@
 pub mod info;
 
 use anyhow::{Result, anyhow};
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     net::TcpListener,
-    sync::{broadcast::Sender, mpsc, oneshot},
+    sync::{OnceCell, broadcast::Sender, mpsc},
 };
 
 use crate::db::Db;
@@ -29,6 +26,7 @@ pub struct Server {
     db: Db,
     info: ServerInfo,
     replication_broadcast: ReplicationBroadcast,
+    from_handles_rx: OnceCell<mpsc::Receiver<Frame>>,
 }
 
 impl Server {
@@ -42,16 +40,23 @@ impl Server {
             replication_broadcast: ReplicationBroadcast {
                 command_propagation: Arc::new(tx),
             },
+            from_handles_rx: OnceCell::new(),
         }
     }
 
-    async fn replicate(&self, listener: &TcpListener, addr: &str) -> Result<()> {
+    async fn replicate(
+        &self,
+        listener: &TcpListener,
+        addr: &str,
+        to_server_tx: mpsc::Sender<Frame>,
+    ) -> Result<()> {
         let connection = Connection::new(
             TcpStream::connect(addr).await?,
             self.info.clone(),
             self.replication_broadcast.command_propagation.clone(),
         );
-        let mut handler = Handle::new_slave_handler(self.db.clone(), connection, self.info.clone());
+        let mut handler =
+            Handle::new_slave_handler(self.db.clone(), connection, self.info.clone(), to_server_tx);
 
         let local_address = listener.local_addr()?;
 
@@ -65,13 +70,18 @@ impl Server {
     }
 
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
+        let (tx, rx) = mpsc::channel(100);
+
+        self.from_handles_rx.set(rx).unwrap();
+
         let master_addres = match self.info.replication_role() {
             &Role::Slave(ref addr) => Some(addr.clone()),
             &Role::Master { .. } => None,
         };
 
         if master_addres.is_some() {
-            self.replicate(&listener, &master_addres.unwrap()).await?;
+            self.replicate(&listener, &master_addres.unwrap(), tx.clone())
+                .await?;
         }
 
         loop {
@@ -81,7 +91,7 @@ impl Server {
                 self.info.clone(),
                 self.replication_broadcast.command_propagation.clone(),
             );
-            let handler = Handle::new(self.db.clone(), connection, self.info.clone());
+            let handler = Handle::new(self.db.clone(), connection, self.info.clone(), tx.clone());
 
             tokio::spawn(async move {
                 if let Err(err) = handler.run().await {
@@ -113,26 +123,39 @@ pub struct Handle {
     offset: usize,
     state: HandlerState,
     server_info: ServerInfo,
+    to_server_tx: mpsc::Sender<Frame>,
 }
 
 impl Handle {
-    pub fn new(db: Db, connection: Connection, server_info: ServerInfo) -> Self {
+    pub fn new(
+        db: Db,
+        connection: Connection,
+        server_info: ServerInfo,
+        to_server_tx: mpsc::Sender<Frame>,
+    ) -> Self {
         Handle {
             db,
             connection,
             offset: 0,
             state: HandlerState::Client,
             server_info,
+            to_server_tx,
         }
     }
 
-    pub fn new_slave_handler(db: Db, connection: Connection, server_info: ServerInfo) -> Self {
+    pub fn new_slave_handler(
+        db: Db,
+        connection: Connection,
+        server_info: ServerInfo,
+        to_server_tx: mpsc::Sender<Frame>,
+    ) -> Self {
         Handle {
             db,
             connection,
             offset: 0,
             state: HandlerState::Replication(ReplicationEnd::Slave),
             server_info,
+            to_server_tx,
         }
     }
 
@@ -238,12 +261,23 @@ impl Handle {
                 // outer loop
                 HandlerState::Replication(ReplicationEnd::Master {
                     ref mut command_propagation_rx,
-                    ..
+                    ref mut server_command_rx,
                 }) => loop {
                     tokio::select! {
                         _result = self.connection.read_frame() => {}
-                        result = command_propagation_rx.recv() => {
-                            self.connection.write_frame(&result?).await?;
+                        propagated_frame = command_propagation_rx.recv() => {
+                            self.connection.write_frame(&propagated_frame?).await?;
+                        }
+                        server_cmd = server_command_rx.recv() => {
+                            let server_cmd = server_cmd?;
+                            self.connection.write_frame(&server_cmd.cmd).await?;
+                            let response = self.connection.read_frame().await?;
+
+                            if response.is_some() {
+                                eprintln!("{:?}", response);
+                                server_cmd.response_channel.send(response.unwrap()).await?
+                            }
+
                         }
                     }
                 },
