@@ -50,6 +50,7 @@ use xadd::XAdd;
 use xrange::XRange;
 use xread::XRead;
 
+#[derive(Debug)]
 pub enum Command {
     Ping(Ping),
     Get(Get),

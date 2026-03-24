@@ -4,6 +4,7 @@ use crate::parser::Parse;
 
 use std::boxed::Box;
 
+#[derive(Debug)]
 pub struct Exec {}
 
 impl Exec {

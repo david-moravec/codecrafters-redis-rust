@@ -3,6 +3,7 @@ use bytes::Bytes;
 use crate::frame::Frame;
 use crate::parser::Parse;
 
+#[derive(Debug)]
 pub struct Psync {}
 
 impl Psync {

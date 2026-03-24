@@ -4,6 +4,7 @@ use crate::stream::StreamEntry;
 
 use bytes::Bytes;
 
+#[derive(Debug)]
 pub struct XAdd {
     key: String,
     id: Bytes,

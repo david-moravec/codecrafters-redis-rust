@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
+#[derive(Debug)]
 pub struct XRead {
     timeout: Option<u64>,
     keys: Vec<String>,

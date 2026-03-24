@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use macros::{ToFrame, propagate_to_replicas};
 
-#[derive(ToFrame)]
+#[derive(ToFrame, Debug)]
 pub struct Set {
     key: String,
     value: Bytes,

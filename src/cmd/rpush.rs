@@ -3,6 +3,7 @@ use crate::parser::Parse;
 
 use bytes::Bytes;
 
+#[derive(Debug)]
 pub struct RPush {
     key: String,
     values: Vec<Bytes>,

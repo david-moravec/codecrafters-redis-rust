@@ -1,5 +1,6 @@
 use crate::parser::Parse;
 
+#[derive(Debug)]
 pub struct Wait {
     pub replica_count: u64,
     pub timeout: u64,

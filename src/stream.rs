@@ -121,6 +121,7 @@ impl IntoFrame for XRead {
     }
 }
 
+#[derive(Debug)]
 pub struct Stream {
     entries: BTreeMap<StreamEntryID, StreamEntry>,
 }

@@ -3,6 +3,7 @@ use crate::parser::Parse;
 
 use bytes::Bytes;
 
+#[derive(Debug)]
 pub struct Echo {
     line: String,
 }

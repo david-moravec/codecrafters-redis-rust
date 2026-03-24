@@ -5,6 +5,7 @@ use tokio::time::timeout;
 use crate::frame::Frame;
 use crate::parser::Parse;
 
+#[derive(Debug)]
 pub struct BLPop {
     key: String,
     timeout: f64,

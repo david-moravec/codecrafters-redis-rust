@@ -12,6 +12,7 @@ use tokio::sync::oneshot;
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError, XRange, XRead};
 use thiserror::Error;
 
+#[derive(Debug)]
 struct Expiry {
     now: Instant,
     duration: Duration,
@@ -42,11 +43,13 @@ pub enum CommandError {
 
 pub type CommandResult<T> = Result<T, CommandError>;
 
+#[derive(Debug)]
 pub struct XReadWaiter {
     id: StreamEntryID,
     tx: oneshot::Sender<XRead>,
 }
 
+#[derive(Debug)]
 struct State {
     db: HashMap<String, Bytes>,
     list_db: HashMap<String, Vec<Bytes>>,
@@ -73,6 +76,7 @@ impl State {
     }
 }
 
+#[derive(Debug)]
 struct Shared {
     state: Mutex<State>,
     blpop_waiters_background_task: Notify,
@@ -147,7 +151,7 @@ impl Shared {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Db {
     shared: Arc<Shared>,
 }

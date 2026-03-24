@@ -1,6 +1,7 @@
 use crate::frame::Frame;
 use crate::parser::Parse;
 
+#[derive(Debug)]
 pub struct LPop {
     key: String,
     start: Option<i64>,

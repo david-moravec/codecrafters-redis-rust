@@ -14,6 +14,7 @@ use crate::cmd::Command;
 use crate::frame::{Frame, FrameError, ToFrame, parse_rdb_file};
 use crate::server::info::{ReplicationInfo, ServerInfo};
 
+#[derive(Debug)]
 pub(crate) struct Connection {
     stream: BufWriter<TcpStream>,
     buffer: BytesMut,

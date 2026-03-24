@@ -2,6 +2,7 @@ use crate::frame::Frame;
 use crate::parser::Parse;
 use bytes::Bytes;
 
+#[derive(Debug)]
 pub struct Replconf {
     send_offset: bool,
 }
