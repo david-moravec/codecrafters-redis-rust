@@ -76,6 +76,7 @@ impl SlaveReplicationHandle {
 }
 
 pub struct MasterReplicationHandle {
+    info: ServerInfo,
     connection: Connection,
     repl_frame_propagation: broadcast::Receiver<Frame>,
     server_command_propagation: broadcast::Receiver<ServerCommand>,
@@ -83,11 +84,13 @@ pub struct MasterReplicationHandle {
 
 impl MasterReplicationHandle {
     pub(super) fn new(
+        info: ServerInfo,
         connection: Connection,
         repl_frame_propagation: broadcast::Receiver<Frame>,
         server_command_propagation: broadcast::Receiver<ServerCommand>,
     ) -> Self {
         Self {
+            info,
             connection,
             repl_frame_propagation,
             server_command_propagation,
@@ -99,7 +102,9 @@ impl MasterReplicationHandle {
             tokio::select! {
                 _ = self.connection.read_frame() => {}
                 propagated_frame = self.repl_frame_propagation.recv() => {
-                    self.connection.write_frame(&propagated_frame?).await?;
+                    let frame = propagated_frame?;
+                    self.connection.write_frame(&frame).await?;
+                    self.info.incement_offset(frame.to_bytes().len())?;
                 }
                 server_cmd = self.server_command_propagation.recv() => {
                     let server_cmd = server_cmd?;
@@ -107,7 +112,8 @@ impl MasterReplicationHandle {
                     let response = self.connection.read_frame().await?;
 
                     if response.is_some() {
-                        server_cmd.response_channel.send(response.unwrap()).await?
+                        eprintln!("{:?}", response.as_ref().unwrap());
+                        server_cmd.response_channel.send(response.unwrap()).await?;
                     }
 
                 }
@@ -163,12 +169,6 @@ impl Handle {
                 let dst = &mut self.connection;
                 dst.write_frame(&cmd.apply(dst)?).await?;
                 dst.write_rdb_file(self.db.to_rdb_file()).await?;
-
-                // self.state = HandlerState::Replication(ReplicationEnd::Master {
-                //     command_propagation_rx: dst.frame_broadcast.subscribe(),
-                //     server_command_rx: self.server_info.server_broadcast_subscribe(),
-                // });
-
                 self.server_info.increment_replica_count()?;
 
                 return Err(HandleError::ReplicationStarted(self.connection));
@@ -222,6 +222,8 @@ impl ServerQueryHandle {
 
                     if replica_count == 0 {
                         if let Err(_) = response.send(0) {};
+                    } else if self.info.offset()? == 0 {
+                        if let Err(_) = response.send(self.info.replica_count()?) {};
                     } else {
                         let (tx, mut rx) = mpsc::channel(100);
                         let server_cmd = ServerCommand {
@@ -247,10 +249,12 @@ impl ServerQueryHandle {
                             }
 
                             match tokio::time::timeout(remaining, rx.recv()).await {
-                                Ok(_) => hit_count += 1,
+                                Ok(response) => hit_count += 1,
                                 Err(_) => break,
                             };
                         }
+
+                        eprintln!("hit count {:}", hit_count);
 
                         if let Err(_) = response.send(hit_count) {};
                     }

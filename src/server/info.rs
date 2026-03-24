@@ -1,13 +1,15 @@
 use crate::frame::{Frame, ToFrame};
 use anyhow::{Result, anyhow};
 use bytes::Bytes;
+use std::collections::HashMap;
 use std::fmt::Display;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{broadcast, mpsc};
 
 #[derive(Debug)]
 pub(crate) enum Role {
-    Master { repl_id: String, repl_offset: usize },
+    Master { repl_id: String },
     Slave(String),
 }
 
@@ -24,6 +26,7 @@ impl Display for Role {
 pub struct ReplicationInfo {
     pub(crate) role: Role,
     pub(crate) count: Mutex<u64>,
+    pub(crate) repl_offset: Mutex<usize>,
 }
 
 impl ReplicationInfo {
@@ -42,13 +45,13 @@ impl ReplicationInfo {
             }
             None => Role::Master {
                 repl_id: "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string(),
-                repl_offset: 0,
             },
         };
 
         Self {
             role,
             count: Mutex::new(0),
+            repl_offset: Mutex::new(0),
         }
     }
 }
@@ -57,18 +60,17 @@ impl ToFrame for ReplicationInfo {
     fn to_frame(&self) -> Frame {
         match self.role {
             Role::Slave(_) => Frame::BulkString(Bytes::from(format!("role:{}", self.role))),
-            Role::Master {
-                ref repl_id,
-                ref repl_offset,
-            } => Frame::BulkString(Bytes::from(format!(
+            Role::Master { ref repl_id } => Frame::BulkString(Bytes::from(format!(
                 "role:{}\nmaster_replid:{}\nmaster_repl_offset:{:}",
-                self.role, repl_id, repl_offset
+                self.role,
+                repl_id,
+                *self.repl_offset.lock().unwrap()
             ))),
         }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(super) struct ServerCommand {
     pub(super) cmd: Frame,
     pub(super) response_channel: mpsc::Sender<Frame>,
@@ -125,6 +127,25 @@ impl ServerInfo {
 
     pub(super) fn server_broadcast_subscribe(&self) -> broadcast::Receiver<ServerCommand> {
         self.shared.server_broadcast.subscribe()
+    }
+
+    pub(super) fn incement_offset(&self, offset_incr: usize) -> Result<()> {
+        if let Role::Master { .. } = self.shared.replication.role {
+            let mut offset = self.shared.replication.repl_offset.lock().unwrap();
+            *offset += offset_incr;
+            Ok(())
+        } else {
+            Err(anyhow!("slaves cannot have replicas"))
+        }
+    }
+
+    pub(crate) fn offset(&self) -> Result<usize> {
+        if let Role::Master { .. } = self.shared.replication.role {
+            let offset = self.shared.replication.repl_offset.lock().unwrap();
+            Ok(*offset)
+        } else {
+            Err(anyhow!("slaves cannot have replicas"))
+        }
     }
 }
 

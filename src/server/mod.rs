@@ -121,22 +121,22 @@ impl Server {
             );
             let handle_frame_tx = self.replication_broadcast.command_propagation.clone();
             let server_cmd_tx_cloned = server_cmd_tx.clone();
+            let info = self.info.clone();
 
             tokio::spawn(async move {
                 match handler.run().await {
                     Ok(_) => {}
                     Err(HandleError::ReplicationStarted(connection)) => {
                         let handler = MasterReplicationHandle::new(
+                            info,
                             connection,
                             handle_frame_tx.subscribe(),
                             server_cmd_tx_cloned.subscribe(),
                         );
 
-                        tokio::spawn(async move {
-                            if let Err(err) = handler.run().await {
-                                eprintln!("error occured on master end replicaiton: {:}", err);
-                            }
-                        });
+                        if let Err(err) = handler.run().await {
+                            eprintln!("error occured on master end replicaiton: {:}", err);
+                        }
                     }
                     Err(HandleError::Other(err)) => {
                         eprintln!("{:}", err);

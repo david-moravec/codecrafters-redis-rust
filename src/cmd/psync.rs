@@ -15,10 +15,11 @@ impl Psync {
     }
     pub fn apply(self, dst: &crate::connection::Connection) -> anyhow::Result<Frame> {
         let frame = match &dst.server_info.replication_role() {
-            crate::server::info::Role::Master {
+            crate::server::info::Role::Master { repl_id } => Frame::Simple(format!(
+                "FULLRESYNC {} {}",
                 repl_id,
-                repl_offset,
-            } => Frame::Simple(format!("FULLRESYNC {} {:}", repl_id, repl_offset)),
+                &dst.server_info.offset()?
+            )),
             crate::server::info::Role::Slave(_) => {
                 Frame::Error("ERR slave does not currently support psync".to_string())
             }
