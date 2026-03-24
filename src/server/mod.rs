@@ -1,27 +1,35 @@
+mod handle;
 pub mod info;
 
-use anyhow::{Result, anyhow};
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-    thread,
-    time::{Duration, Instant},
-};
+use anyhow::Result;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::{broadcast::Sender, mpsc, oneshot};
 
-use crate::db::Db;
-use bytes::Bytes;
+use self::handle::{Handle, MasterReplicationHandle, SlaveReplicationHandle};
+use crate::{
+    db::Db,
+    server::handle::{HandleError, ServerQueryHandle},
+};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 
-use crate::cmd::Command;
 use crate::connection::Connection;
 use crate::frame::Frame;
-use info::{Role, ServerCommand, ServerInfo};
+use info::{Role, ServerInfo};
 
 #[derive(Clone)]
 struct ReplicationBroadcast {
     command_propagation: Arc<Sender<Frame>>,
+}
+
+// type HandleResponse = Frame;
+
+pub enum Query {
+    Wait {
+        count: u64,
+        timeout: Duration,
+        response: oneshot::Sender<u64>,
+    },
 }
 
 pub struct Server {
@@ -43,73 +51,19 @@ impl Server {
             },
         }
     }
-    async fn respond_to_queries(
-        info: ServerInfo,
-        mut query_rx: mpsc::Receiver<Query>,
-        mut handle_response_rx: mpsc::Receiver<HandleResponse>,
-        handle_frame_tx: Arc<broadcast::Sender<Frame>>,
-    ) -> Result<()> {
-        loop {
-            match query_rx
-                .recv()
-                .await
-                .ok_or(anyhow!("query channel closed"))?
-            {
-                Query::Wait {
-                    count,
-                    timeout,
-                    response,
-                } => {
-                    let replica_count = info.replica_count()?;
 
-                    if replica_count == 0 {
-                        if let Err(_) = response.send(0) {};
-                    } else {
-                        handle_frame_tx.send(Frame::bulk_strings_array_from_str(vec![
-                            "REPLCONF", "GETACK", "*",
-                        ]))?;
-
-                        let mut hit_count = 0;
-                        let deadline = Instant::now() + timeout;
-
-                        loop {
-                            let remaining = deadline.saturating_duration_since(Instant::now());
-
-                            if remaining.is_zero() {
-                                break;
-                            }
-
-                            match tokio::time::timeout(remaining, handle_response_rx.recv()).await {
-                                Ok(_) => hit_count += 1,
-                                Err(_) => break,
-                            };
-                        }
-
-                        if let Err(_) = response.send(hit_count) {};
-                    }
-                }
-            }
-        }
-    }
-
-    async fn replicate(
-        &self,
-        listener: &TcpListener,
-        addr: &str,
-        query_tx: mpsc::Sender<Query>,
-    ) -> Result<()> {
+    async fn replicate(&self, listener: &TcpListener, addr: &str) -> Result<()> {
         let connection = Connection::new(
             TcpStream::connect(addr).await?,
             self.info.clone(),
             self.replication_broadcast.command_propagation.clone(),
         );
-        let mut handler =
-            Handle::new_slave_handler(self.db.clone(), connection, self.info.clone(), query_tx);
+        let mut handler = SlaveReplicationHandle::new(self.db.clone(), connection);
 
         let local_address = listener.local_addr()?;
 
         tokio::spawn(async move {
-            if let Err(err) = handler.replicate(local_address).await {
+            if let Err(err) = handler.run(local_address).await {
                 eprint!("replication error {:}", err);
             }
         });
@@ -117,9 +71,26 @@ impl Server {
         Ok(())
     }
 
+    async fn respond_to_queries(
+        &self,
+        info: ServerInfo,
+        query_rx: mpsc::Receiver<Query>,
+        server_cmd_tx: broadcast::Sender<info::ServerCommand>,
+    ) -> Result<()> {
+        let handler = ServerQueryHandle::new(info, query_rx, server_cmd_tx);
+
+        tokio::spawn(async move {
+            if let Err(err) = handler.run().await {
+                eprintln!("during quering server following error occured; {:}", err);
+            }
+        });
+
+        Ok(())
+    }
+
     pub async fn run(&self, listener: TcpListener) -> Result<()> {
-        // let (handle_response_tx, handle_response_rx) = mpsc::channel(100);
         let (query_tx, query_rx) = mpsc::channel(100);
+        let (server_cmd_tx, _) = broadcast::channel(16);
 
         let master_addres = match self.info.replication_role() {
             &Role::Slave(ref addr) => Some(addr.clone()),
@@ -127,18 +98,13 @@ impl Server {
         };
 
         if master_addres.is_some() {
-            self.replicate(&listener, &master_addres.unwrap(), query_tx.clone())
-                .await?;
+            self.replicate(&listener, &master_addres.unwrap()).await?;
         }
 
         let info = self.info.clone();
-        let handle_frame_tx = self.replication_broadcast.command_propagation.clone();
 
-        tokio::spawn(async move {
-            if let Err(e) = Self::respond_to_queries(info, query_rx, handle_frame_tx).await {
-                eprintln!("during handling queries followign error occured; {:}", e);
-            }
-        });
+        self.respond_to_queries(info, query_rx, server_cmd_tx.clone())
+            .await?;
 
         loop {
             let socket = listener.accept().await?;
@@ -153,211 +119,38 @@ impl Server {
                 self.info.clone(),
                 query_tx.clone(),
             );
+            let handle_frame_tx = self.replication_broadcast.command_propagation.clone();
+            let server_cmd_tx_cloned = server_cmd_tx.clone();
 
             tokio::spawn(async move {
-                if let Err(err) = handler.run().await {
-                    eprint!("{:}", err);
+                match handler.run().await {
+                    Ok(_) => {}
+                    Err(HandleError::ReplicationStarted(connection)) => {
+                        let handler = MasterReplicationHandle::new(
+                            connection,
+                            handle_frame_tx.subscribe(),
+                            server_cmd_tx_cloned.subscribe(),
+                        );
+
+                        tokio::spawn(async move {
+                            if let Err(err) = handler.run().await {
+                                eprintln!("error occured on master end replicaiton: {:}", err);
+                            }
+                        });
+                    }
+                    Err(HandleError::Other(err)) => {
+                        eprintln!("{:}", err);
+                    }
                 }
             });
         }
     }
 }
 
-#[derive(Debug)]
-enum ReplicationEnd {
-    Master {
-        command_propagation_rx: broadcast::Receiver<Frame>,
-        server_command_rx: broadcast::Receiver<ServerCommand>,
-    },
-    Slave,
-}
-
-type HandleResponse = Frame;
-
-#[derive(Debug)]
-enum HandlerState {
-    Client,
-    Replication(ReplicationEnd),
-}
-
-pub enum Query {
-    Wait {
-        count: u64,
-        timeout: Duration,
-        response: oneshot::Sender<u64>,
-    },
-}
-
-pub struct Handle {
-    pub(crate) db: Db,
-    connection: Connection,
-    offset: usize,
-    state: HandlerState,
-    server_info: ServerInfo,
-    query_tx: mpsc::Sender<Query>,
-}
-
-impl Handle {
-    pub fn new(
-        db: Db,
-        connection: Connection,
-        server_info: ServerInfo,
-        query_tx: mpsc::Sender<Query>,
-    ) -> Self {
-        Handle {
-            db,
-            connection,
-            offset: 0,
-            state: HandlerState::Client,
-            server_info,
-            query_tx,
-        }
-    }
-
-    pub fn new_slave_handler(
-        db: Db,
-        connection: Connection,
-        server_info: ServerInfo,
-        query_tx: mpsc::Sender<Query>,
-    ) -> Self {
-        Handle {
-            db,
-            connection,
-            offset: 0,
-            state: HandlerState::Replication(ReplicationEnd::Slave),
-            server_info,
-            query_tx,
-        }
-    }
-
-    async fn replicate(&mut self, local_address: SocketAddr) -> Result<()> {
-        match &self.state {
-            HandlerState::Replication(ReplicationEnd::Slave) => {
-                self.connection
-                    .write_frame(&Frame::Array(Some(vec![Frame::BulkString(Bytes::from(
-                        "PING",
-                    ))])))
-                    .await?;
-                let _ = self.connection.read_frame().await?;
-
-                self.connection
-                    .send_command(&[
-                        "REPLCONF",
-                        "listening-port",
-                        format!("{:}", local_address.port()).as_str(),
-                    ])
-                    .await?;
-                let _ = self.connection.read_frame().await?;
-
-                self.connection
-                    .send_command(&["REPLCONF", "capa", "psync2"])
-                    .await?;
-                let _ = self.connection.read_frame().await?;
-
-                self.connection.send_command(&["PSYNC", "?", "-1"]).await?;
-                self.connection.read_frame().await?;
-                self.connection.read_rdb_file().await?;
-
-                loop {
-                    let maybe_frame = self.connection.read_frame().await?;
-
-                    let frame = match maybe_frame {
-                        Some(frame) => frame,
-                        None => return Ok(()),
-                    };
-
-                    let frame_bytes_len = frame.to_bytes().len();
-                    let command = Command::from_frame(frame)?;
-
-                    if let Command::Replconf(cmd) = command {
-                        let frame = cmd.apply(&mut self.connection, self.offset)?;
-                        self.connection.write_frame(&frame).await?;
-                    } else {
-                        command.apply(&self.db, &mut self.connection).await?;
-                    }
-
-                    self.offset += frame_bytes_len;
-                }
-            }
-            s => Err(anyhow!(
-                "Run replication can be invoked only on slave end of replication handle; current state is {:?}",
-                s
-            )),
-        }
-    }
-
-    pub(crate) async fn run(mut self) -> Result<()> {
-        if let HandlerState::Replication(ReplicationEnd::Slave) = self.state {
-            return Err(anyhow!(
-                "for running replication handler use 'replicate' method"
-            ));
-        }
-
-        loop {
-            match self.state {
-                HandlerState::Client => {
-                    let maybe_frame = self.connection.read_frame().await?;
-
-                    let frame = match maybe_frame {
-                        Some(frame) => frame,
-                        None => return Ok(()),
-                    };
-
-                    let command = Command::from_frame(frame)?;
-
-                    if let Command::Psync(cmd) = command {
-                        let dst = &mut self.connection;
-                        dst.write_frame(&cmd.apply(dst)?).await?;
-                        dst.write_rdb_file(self.db.to_rdb_file()).await?;
-
-                        self.state = HandlerState::Replication(ReplicationEnd::Master {
-                            command_propagation_rx: dst.frame_broadcast.subscribe(),
-                            server_command_rx: self.server_info.server_broadcast_subscribe(),
-                        });
-                        self.server_info.increment_replica_count()?;
-                    } else if let Command::Replconf(cmd) = command {
-                        let frame = cmd.apply(&mut self.connection, self.offset)?;
-                        self.connection.write_frame(&frame).await?;
-                    } else if let Command::Wait(cmd) = command {
-                        let frame = cmd.apply(&mut self.query_tx).await?;
-                        self.connection.write_frame(&frame).await?;
-                    } else {
-                        let response = command.apply(&self.db, &mut self.connection).await?;
-                        self.connection.write_frame(&response).await?;
-                    }
-                }
-                // once changed to master end replica connection
-                // it cannot go back so we can loop to avoid unnecessary
-                // outer loop
-                HandlerState::Replication(ReplicationEnd::Master {
-                    ref mut command_propagation_rx,
-                    ref mut server_command_rx,
-                }) => loop {
-                    tokio::select! {
-                        result = self.connection.read_frame() => {}
-                        propagated_frame = command_propagation_rx.recv() => {
-                            self.connection.write_frame(&propagated_frame?).await?;
-                        }
-                        server_cmd = server_command_rx.recv() => {
-                            let server_cmd = server_cmd?;
-                            self.connection.write_frame(&server_cmd.cmd).await?;
-                            let response = self.connection.read_frame().await?;
-
-                            if response.is_some() {
-                                server_cmd.response_channel.send(response.unwrap()).await?
-                            }
-
-                        }
-                    }
-                },
-                _ => unreachable!(),
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
+    use bytes::Bytes;
+    use std::net::SocketAddr;
     use std::time::Duration;
 
     use super::*;
@@ -434,7 +227,7 @@ mod test {
         let master_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let master_address = master_listener.local_addr().unwrap();
 
-        let replica_address = start_replica(
+        let _ = start_replica(
             format!("{} {}", master_address.ip(), master_address.port()),
             "0",
         )
