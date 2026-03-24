@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{frame::Frame, parser::Parse, server::Query};
+use crate::{frame::Frame, parser::Parse, server::ReplicationCommand};
 
 #[derive(Debug)]
 pub struct Wait {
@@ -21,10 +21,10 @@ impl Wait {
         })
     }
 
-    pub async fn apply(self, query_tx: &mut mpsc::Sender<Query>) -> Result<Frame> {
+    pub async fn apply(self, query_tx: &mut mpsc::Sender<ReplicationCommand>) -> Result<Frame> {
         let (tx, rx) = oneshot::channel();
         query_tx
-            .send(Query::Wait {
+            .send(ReplicationCommand::Wait {
                 count: self.replica_count,
                 timeout: Duration::from_millis(self.timeout),
                 response: tx,

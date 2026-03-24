@@ -8,7 +8,7 @@ use crate::db::Db;
 use bytes::Bytes;
 use tokio::sync::broadcast;
 
-use super::Query;
+use super::ReplicationCommand;
 use super::info::{ServerCommand, ServerInfo};
 use crate::cmd::Command;
 use crate::connection::Connection;
@@ -136,7 +136,7 @@ pub(super) struct Handle {
     pub(crate) db: Db,
     connection: Connection,
     server_info: ServerInfo,
-    query_tx: mpsc::Sender<Query>,
+    query_tx: mpsc::Sender<ReplicationCommand>,
 }
 
 impl Handle {
@@ -144,7 +144,7 @@ impl Handle {
         db: Db,
         connection: Connection,
         server_info: ServerInfo,
-        query_tx: mpsc::Sender<Query>,
+        query_tx: mpsc::Sender<ReplicationCommand>,
     ) -> Self {
         Handle {
             db,
@@ -188,14 +188,14 @@ impl Handle {
 
 pub(super) struct ServerQueryHandle {
     info: ServerInfo,
-    query_rx: mpsc::Receiver<Query>,
+    query_rx: mpsc::Receiver<ReplicationCommand>,
     server_cmd_tx: broadcast::Sender<ServerCommand>,
 }
 
 impl ServerQueryHandle {
     pub(super) fn new(
         info: ServerInfo,
-        query_rx: mpsc::Receiver<Query>,
+        query_rx: mpsc::Receiver<ReplicationCommand>,
         server_cmd_tx: broadcast::Sender<ServerCommand>,
     ) -> Self {
         Self {
@@ -213,7 +213,7 @@ impl ServerQueryHandle {
                 .await
                 .ok_or(anyhow!("query channel closed"))?
             {
-                Query::Wait {
+                ReplicationCommand::Wait {
                     count,
                     timeout,
                     response,

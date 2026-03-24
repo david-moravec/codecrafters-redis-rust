@@ -1,11 +1,13 @@
 mod handle;
 pub mod info;
+mod replicationbroadcast;
 
 use anyhow::Result;
-use std::{sync::Arc, time::Duration};
-use tokio::sync::{broadcast::Sender, mpsc, oneshot};
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
 
 use self::handle::{Handle, MasterReplicationHandle, SlaveReplicationHandle};
+use self::replicationbroadcast::ReplicationBroadcast;
 use crate::{
     db::Db,
     server::handle::{HandleError, ServerQueryHandle},
@@ -17,14 +19,7 @@ use crate::connection::Connection;
 use crate::frame::Frame;
 use info::{Role, ServerInfo};
 
-#[derive(Clone)]
-struct ReplicationBroadcast {
-    command_propagation: Arc<Sender<Frame>>,
-}
-
-// type HandleResponse = Frame;
-
-pub enum Query {
+pub enum ReplicationCommand {
     Wait {
         count: u64,
         timeout: Duration,
@@ -41,14 +36,11 @@ pub struct Server {
 impl Server {
     pub fn new(master_address: Option<String>) -> Self {
         let info = ServerInfo::new(master_address);
-        let (tx, _) = broadcast::channel(16);
 
         Self {
             db: Db::new(),
             info,
-            replication_broadcast: ReplicationBroadcast {
-                command_propagation: Arc::new(tx),
-            },
+            replication_broadcast: ReplicationBroadcast::new(),
         }
     }
 
@@ -56,7 +48,7 @@ impl Server {
         let connection = Connection::new(
             TcpStream::connect(addr).await?,
             self.info.clone(),
-            self.replication_broadcast.command_propagation.clone(),
+            self.replication_broadcast.transmiter(),
         );
         let mut handler = SlaveReplicationHandle::new(self.db.clone(), connection);
 
@@ -74,7 +66,7 @@ impl Server {
     async fn respond_to_queries(
         &self,
         info: ServerInfo,
-        query_rx: mpsc::Receiver<Query>,
+        query_rx: mpsc::Receiver<ReplicationCommand>,
         server_cmd_tx: broadcast::Sender<info::ServerCommand>,
     ) -> Result<()> {
         let handler = ServerQueryHandle::new(info, query_rx, server_cmd_tx);
@@ -111,7 +103,7 @@ impl Server {
             let connection = Connection::new(
                 socket.0,
                 self.info.clone(),
-                self.replication_broadcast.command_propagation.clone(),
+                self.replication_broadcast.transmiter(),
             );
             let handler = Handle::new(
                 self.db.clone(),
@@ -119,7 +111,7 @@ impl Server {
                 self.info.clone(),
                 query_tx.clone(),
             );
-            let handle_frame_tx = self.replication_broadcast.command_propagation.clone();
+            let handle_frame_tx = self.replication_broadcast.transmiter();
             let server_cmd_tx_cloned = server_cmd_tx.clone();
             let info = self.info.clone();
 
@@ -151,7 +143,11 @@ impl Server {
 mod test {
     use bytes::Bytes;
     use std::net::SocketAddr;
+    use std::sync::Arc;
     use std::time::Duration;
+    use tokio::sync::broadcast;
+
+    use crate::frame::Frame;
 
     use super::*;
 
@@ -237,7 +233,7 @@ mod test {
 
         let master_replica_stream = replication_socket.0;
 
-        let tx: Sender<Frame> = broadcast::channel(16).0;
+        let tx: broadcast::Sender<Frame> = broadcast::channel(16).0;
 
         let mut master_replica_connection =
             Connection::new(master_replica_stream, ServerInfo::new(None), Arc::new(tx));
@@ -302,7 +298,7 @@ mod test {
     async fn test_wait_no_replicas() {
         let addr = start_master("0").await;
         let stream = TcpStream::connect(addr).await.unwrap();
-        let tx: Sender<Frame> = broadcast::channel(16).0;
+        let tx: broadcast::Sender<Frame> = broadcast::channel(16).0;
         let mut connection = Connection::new(stream, ServerInfo::new(None), Arc::new(tx));
 
         connection
