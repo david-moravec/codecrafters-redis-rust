@@ -3,6 +3,7 @@ pub mod info;
 mod replicationbroadcast;
 
 use anyhow::Result;
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
@@ -143,13 +144,106 @@ impl Server {
 mod test {
     use bytes::Bytes;
     use std::net::SocketAddr;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::sync::broadcast;
 
+    use crate::cmd::Command;
     use crate::frame::Frame;
 
     use super::*;
+
+    struct MockReplica {
+        // master_connection: Connection
+        recieved_frames: Arc<Mutex<Vec<Frame>>>,
+    }
+
+    impl MockReplica {
+        fn new() -> Self {
+            Self {
+                recieved_frames: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        async fn run(&self, master_addr: &SocketAddr) -> Result<()> {
+            let (tx, rx) = broadcast::channel(16);
+            let info = ServerInfo::new(None);
+            let mut connection =
+                Connection::new(TcpStream::connect(master_addr).await?, info, Arc::new(tx));
+
+            // let local_address = listener.local_addr()?;
+            //
+            connection
+                .write_frame(&Frame::Array(Some(vec![Frame::BulkString(Bytes::from(
+                    "PING",
+                ))])))
+                .await?;
+            let _ = connection.read_frame().await?;
+
+            let local_address = connection.local_addr();
+
+            connection
+                .send_command(&[
+                    "REPLCONF",
+                    "listening-port",
+                    format!("{:}", local_address.port()).as_str(),
+                ])
+                .await?;
+            let _ = connection.read_frame().await?;
+
+            connection
+                .send_command(&["REPLCONF", "capa", "psync2"])
+                .await?;
+            let e = connection.read_frame().await?;
+
+            connection.send_command(&["PSYNC", "?", "-1"]).await?;
+            connection.read_frame().await?;
+            connection.read_rdb_file().await?;
+
+            let recieved_frames = self.recieved_frames.clone();
+
+            tokio::spawn(async move {
+                if let Err(err) = Self::replicate(connection, recieved_frames).await {
+                    eprintln!("{:}", err);
+                }
+            });
+
+            Ok(())
+        }
+
+        async fn replicate(
+            mut connection: Connection,
+            recieved_frames: Arc<Mutex<Vec<Frame>>>,
+        ) -> Result<()> {
+            let mut offset = 0;
+            loop {
+                let maybe_frame = connection.read_frame().await?;
+
+                let frame = match maybe_frame {
+                    Some(frame) => frame,
+                    None => return Ok(()),
+                };
+
+                eprintln!("from master recieved {:?}", frame);
+
+                {
+                    recieved_frames.lock().unwrap().push(frame.clone());
+                }
+                let frame_byte_len = frame.to_bytes().len();
+
+                if let Command::Replconf(_) = Command::from_frame(frame)? {
+                    connection
+                        .send_command(&["REPLCONF", "ACK", &format!("{:}", offset)])
+                        .await?;
+                }
+                offset += frame_byte_len;
+            }
+        }
+
+        fn recieved_frames(&self) -> Vec<Frame> {
+            self.recieved_frames.lock().unwrap().clone()
+        }
+    }
 
     async fn start_master(port: &str) -> SocketAddr {
         let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{:}", port))
@@ -170,6 +264,17 @@ mod test {
 
         local_addres
     }
+    async fn start_mock_replica(master_addr: SocketAddr) -> Arc<Mutex<Vec<Frame>>> {
+        let replica = MockReplica::new();
+        let recieved_frames = replica.recieved_frames.clone();
+        tokio::spawn(async move {
+            if let Err(e) = replica.run(&master_addr).await {
+                eprintln!("when running replica following error occured; {}", e);
+            }
+        });
+
+        recieved_frames
+    }
 
     async fn start_replica(master_addr: String, port: &str) -> SocketAddr {
         let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{:}", port))
@@ -189,6 +294,25 @@ mod test {
         });
 
         local_addres
+    }
+
+    async fn send_command_read_response(
+        connection: &mut Connection,
+        cmd: &[&str],
+        expected_response: &[u8],
+    ) {
+        connection.send_command(cmd).await.unwrap();
+
+        match tokio::time::timeout(Duration::from_millis(500), connection.read_frame()).await {
+            Ok(frame_result) => {
+                eprintln!("{:?}", frame_result);
+                assert!(frame_result.unwrap().unwrap().to_bytes().to_vec() == expected_response);
+            }
+            Err(_) => {
+                eprintln!("timeout reached");
+                assert!(false)
+            }
+        }
     }
 
     async fn replication_handshake(master_replica_connection: &mut Connection) -> Result<()> {
@@ -230,9 +354,7 @@ mod test {
         .await;
 
         let replication_socket = master_listener.accept().await.unwrap();
-
         let master_replica_stream = replication_socket.0;
-
         let tx: broadcast::Sender<Frame> = broadcast::channel(16).0;
 
         let mut master_replica_connection =
@@ -316,5 +438,54 @@ mod test {
         eprintln!("{:?}", f.to_bytes());
 
         assert!(f.to_bytes().to_vec() == b":0\r\n");
+    }
+
+    #[tokio::test]
+    async fn test_block_wait() {
+        fn assert_last_recieved(
+            recieved_frames: Arc<Mutex<Vec<Frame>>>,
+            expected_last_recieved: Vec<&str>,
+        ) {
+            let last_recieved = recieved_frames.lock().unwrap().pop().unwrap();
+            eprintln!("last revieved {:?}", last_recieved);
+            assert!(
+                last_recieved.to_bytes()
+                    == Frame::bulk_strings_array_from_str(expected_last_recieved).to_bytes()
+            )
+        }
+        let master_address = start_master("0").await;
+        let recieved_frames_0 = start_mock_replica(master_address).await;
+        let recieved_frames_1 = start_mock_replica(master_address).await;
+        let recieved_frames_2 = start_mock_replica(master_address).await;
+
+        let master_stream = TcpStream::connect(master_address).await.unwrap();
+        let tx: broadcast::Sender<Frame> = broadcast::channel(16).0;
+        let mut master_client = Connection::new(master_stream, ServerInfo::new(None), Arc::new(tx));
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let rec = { recieved_frames_0.lock().unwrap().clone() };
+
+        assert_last_recieved(recieved_frames_0, vec!["SET", "foo", "1"]);
+        assert_last_recieved(recieved_frames_1, vec!["SET", "foo", "1"]);
+        assert_last_recieved(recieved_frames_2, vec!["SET", "foo", "1"]);
+
+        send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
+        send_command_read_response(&mut master_client, &["WAIT", "1", "1000"], b":1\r\n").await;
+
+        send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
+        send_command_read_response(&mut master_client, &["WAIT", "2", "1000"], b":2\r\n").await;
+
+        // send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
+        // send_command_read_response(&mut master_client, &["WAIT", "3", "10"], b":0\r\n").await;
+
+        send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
+        send_command_read_response(&mut master_client, &["WAIT", "3", "1000"], b":3\r\n").await;
+
+        send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
+        send_command_read_response(&mut master_client, &["WAIT", "3", "1000"], b":3\r\n").await;
     }
 }

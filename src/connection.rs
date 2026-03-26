@@ -3,6 +3,7 @@ use bytes::Bytes;
 use bytes::{Buf, BytesMut};
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast::Sender;
 use tokio::{
@@ -16,7 +17,7 @@ use crate::server::info::{ReplicationInfo, ServerInfo};
 
 #[derive(Debug)]
 pub(crate) struct Connection {
-    stream: BufWriter<TcpStream>,
+    pub stream: BufWriter<TcpStream>,
     buffer: BytesMut,
     pub(crate) command_queue: VecDeque<Command>,
     pub(crate) is_queueing_commands: bool,
@@ -72,7 +73,6 @@ impl Connection {
     }
 
     pub async fn read_rdb_file(&mut self) -> Result<()> {
-        eprintln!("Starting to read rdb file");
         loop {
             if let Some(_) = self.parse_rdb_file()? {
                 return Ok(());
@@ -86,6 +86,14 @@ impl Connection {
                 }
             }
         }
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.stream.get_ref().local_addr().unwrap()
+    }
+
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.stream.get_ref().peer_addr().unwrap()
     }
 
     // pub async fn read_rdb_file(&mut self) -> Result<()> {
@@ -114,6 +122,7 @@ impl Connection {
 
     pub fn send_to_replicas_connections(&mut self, frame: Frame) -> Result<()> {
         // ignore error if no one is subscribed
+        eprintln!("reciever count {:}", self.frame_broadcast.receiver_count());
         if let Err(_) = self.frame_broadcast.send(frame) {
             eprintln!("error senging to replicas");
         };

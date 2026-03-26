@@ -61,6 +61,7 @@ impl SlaveReplicationHandle {
             };
 
             let frame_bytes_len = frame.to_bytes().len();
+            eprintln!("replica got {:?}", frame);
             let command = Command::from_frame(frame)?;
 
             if let Command::Replconf(cmd) = command {
@@ -103,16 +104,18 @@ impl MasterReplicationHandle {
                 _ = self.connection.read_frame() => {}
                 propagated_frame = self.repl_frame_propagation.recv() => {
                     let frame = propagated_frame?;
+                    // eprintln!("Recieved propagation {:?} for {:?}", frame, self.connection.stream.get_ref().peer_addr().unwrap());
                     self.connection.write_frame(&frame).await?;
                     self.info.incement_offset(frame.to_bytes().len())?;
                 }
                 server_cmd = self.server_command_propagation.recv() => {
                     let server_cmd = server_cmd?;
+                    // eprintln!("Recieved serer cmd {:?} for {:?}", server_cmd.cmd, self.connection.stream.get_ref().peer_addr().unwrap());
                     self.connection.write_frame(&server_cmd.cmd).await?;
                     let response = self.connection.read_frame().await?;
 
                     if response.is_some() {
-                        eprintln!("{:?}", response.as_ref().unwrap());
+                        // eprintln!("{:?}", response.as_ref().unwrap());
                         server_cmd.response_channel.send(response.unwrap()).await?;
                     }
 
@@ -170,6 +173,8 @@ impl Handle {
                 dst.write_frame(&cmd.apply(dst)?).await?;
                 dst.write_rdb_file(self.db.to_rdb_file()).await?;
                 self.server_info.increment_replica_count()?;
+
+                eprintln!("replication registered");
 
                 return Err(HandleError::ReplicationStarted(self.connection));
             } else if let Command::Replconf(cmd) = command {
@@ -233,6 +238,10 @@ impl ServerQueryHandle {
                             response_channel: tx.clone(),
                         };
 
+                        // eprintln!(
+                        //     "server cmd reciever count {:}",
+                        //     self.server_cmd_tx.receiver_count()
+                        // );
                         self.server_cmd_tx.send(server_cmd).map_err(|e| anyhow!("during sending cmd to replia conneciton following error occured; {:}", e))?;
 
                         let mut hit_count = 0;
@@ -253,8 +262,6 @@ impl ServerQueryHandle {
                                 Err(_) => break,
                             };
                         }
-
-                        eprintln!("hit count {:}", hit_count);
 
                         if let Err(_) = response.send(hit_count) {};
                     }

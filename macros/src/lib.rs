@@ -126,7 +126,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let tt = quote! {impl #ident {
         fn to_frame(&self) -> Frame {
             use bytes::Bytes;
-            Frame::bulk_strings_array(vec![Bytes::from(#ident_str), #(#fields_to_bytes,)*])
+            Frame::bulk_strings_array(vec![Bytes::from((#ident_str).to_uppercase()), #(#fields_to_bytes,)*])
         }
 
     }};
