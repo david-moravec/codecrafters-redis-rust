@@ -111,7 +111,6 @@ impl MasterReplicationHandle {
     pub(super) async fn run(mut self) -> Result<()> {
         loop {
             tokio::select! {
-                _ = self.connection.read_frame() => {}
                 propagated_frame = self.repl_frame_propagation.recv() => {
                     let frame = propagated_frame?;
                     eprintln!("[propagation:replica@{:?}] {:?}",   self.connection.stream.get_ref().peer_addr().unwrap().port(),frame);
