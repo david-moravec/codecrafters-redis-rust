@@ -129,6 +129,8 @@ impl Server {
 
                         if let Err(err) = handler.run().await {
                             eprintln!("error occured on master end replicaiton: {:}", err);
+                        } else {
+                            eprintln!("exiting")
                         }
                     }
                     Err(HandleError::Other(err)) => {
@@ -156,12 +158,14 @@ mod test {
     struct MockReplica {
         // master_connection: Connection
         recieved_frames: Arc<Mutex<Vec<Frame>>>,
+        respond_to_ack: bool,
     }
 
     impl MockReplica {
-        fn new() -> Self {
+        fn new(respond_to_ack: bool) -> Self {
             Self {
                 recieved_frames: Arc::new(Mutex::new(Vec::new())),
+                respond_to_ack,
             }
         }
 
@@ -201,9 +205,10 @@ mod test {
             connection.read_rdb_file().await?;
 
             let recieved_frames = self.recieved_frames.clone();
+            let respond = self.respond_to_ack;
 
             tokio::spawn(async move {
-                if let Err(err) = Self::replicate(connection, recieved_frames).await {
+                if let Err(err) = Self::replicate(connection, recieved_frames, respond).await {
                     eprintln!("{:}", err);
                 }
             });
@@ -214,6 +219,7 @@ mod test {
         async fn replicate(
             mut connection: Connection,
             recieved_frames: Arc<Mutex<Vec<Frame>>>,
+            respond_to_ack: bool,
         ) -> Result<()> {
             let mut offset = 0;
             loop {
@@ -232,9 +238,11 @@ mod test {
                 let frame_byte_len = frame.to_bytes().len();
 
                 if let Command::Replconf(_) = Command::from_frame(frame)? {
-                    connection
-                        .send_command(&["REPLCONF", "ACK", &format!("{:}", offset)])
-                        .await?;
+                    if respond_to_ack {
+                        connection
+                            .send_command(&["REPLCONF", "ACK", &format!("{:}", offset)])
+                            .await?;
+                    }
                 }
                 offset += frame_byte_len;
             }
@@ -264,8 +272,8 @@ mod test {
 
         local_addres
     }
-    async fn start_mock_replica(master_addr: SocketAddr) -> Arc<Mutex<Vec<Frame>>> {
-        let replica = MockReplica::new();
+    async fn start_mock_replica(master_addr: SocketAddr, respond: bool) -> Arc<Mutex<Vec<Frame>>> {
+        let replica = MockReplica::new(respond);
         let recieved_frames = replica.recieved_frames.clone();
         tokio::spawn(async move {
             if let Err(e) = replica.run(&master_addr).await {
@@ -309,7 +317,7 @@ mod test {
                 assert!(frame_result.unwrap().unwrap().to_bytes().to_vec() == expected_response);
             }
             Err(_) => {
-                eprintln!("timeout reached");
+                eprintln!("timeout for {:?}", cmd);
                 assert!(false)
             }
         }
@@ -454,9 +462,9 @@ mod test {
             )
         }
         let master_address = start_master("0").await;
-        let recieved_frames_0 = start_mock_replica(master_address).await;
-        let recieved_frames_1 = start_mock_replica(master_address).await;
-        let recieved_frames_2 = start_mock_replica(master_address).await;
+        let recieved_frames_0 = start_mock_replica(master_address, true).await;
+        let recieved_frames_1 = start_mock_replica(master_address, false).await;
+        let recieved_frames_2 = start_mock_replica(master_address, true).await;
 
         let master_stream = TcpStream::connect(master_address).await.unwrap();
         let tx: broadcast::Sender<Frame> = broadcast::channel(16).0;
@@ -482,9 +490,9 @@ mod test {
         send_command_read_response(&mut master_client, &["WAIT", "3", "10"], b":0\r\n").await;
 
         send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
-        send_command_read_response(&mut master_client, &["WAIT", "3", "1000"], b":3\r\n").await;
+        send_command_read_response(&mut master_client, &["WAIT", "3", "1000"], b":2\r\n").await;
 
         send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
-        send_command_read_response(&mut master_client, &["WAIT", "3", "1000"], b":3\r\n").await;
+        send_command_read_response(&mut master_client, &["WAIT", "3", "2000"], b":2\r\n").await;
     }
 }

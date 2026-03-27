@@ -104,20 +104,23 @@ impl MasterReplicationHandle {
                 _ = self.connection.read_frame() => {}
                 propagated_frame = self.repl_frame_propagation.recv() => {
                     let frame = propagated_frame?;
-                    // eprintln!("Recieved propagation {:?} for {:?}", frame, self.connection.stream.get_ref().peer_addr().unwrap());
                     self.connection.write_frame(&frame).await?;
                     self.info.incement_offset(frame.to_bytes().len())?;
+                    eprintln!("Recieved propagation {:?} for {:?}", frame, self.connection.stream.get_ref().peer_addr().unwrap());
                 }
                 server_cmd = self.server_command_propagation.recv() => {
                     let server_cmd = server_cmd?;
-                    // eprintln!("Recieved serer cmd {:?} for {:?}", server_cmd.cmd, self.connection.stream.get_ref().peer_addr().unwrap());
+                    eprintln!("Recieved serer cmd {:?} for {:?}", server_cmd.cmd, self.connection.stream.get_ref().peer_addr().unwrap());
                     self.connection.write_frame(&server_cmd.cmd).await?;
                     let response = self.connection.read_frame().await?;
 
+                    eprintln!("Received reponse to server cmd");
+
                     if response.is_some() {
-                        // eprintln!("{:?}", response.as_ref().unwrap());
+                        eprintln!("{:?}", response.as_ref().unwrap());
                         if let Err(_) = server_cmd.response_channel.send(response.unwrap()).await {};
                     }
+                    eprintln!("reponse to server cmd send to server");
 
                 }
             }
@@ -257,8 +260,13 @@ impl ServerQueryHandle {
                                 break;
                             }
 
+                            eprintln!("Reamining is {:?}", remaining);
+
                             match tokio::time::timeout(remaining, rx.recv()).await {
-                                Ok(response) => hit_count += 1,
+                                Ok(response) => {
+                                    eprintln!("repponse {:?}", response);
+                                    hit_count += 1;
+                                }
                                 Err(_) => break,
                             };
                         }
