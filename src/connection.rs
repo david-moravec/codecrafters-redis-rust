@@ -96,18 +96,6 @@ impl Connection {
         self.stream.get_ref().peer_addr().unwrap()
     }
 
-    // pub async fn read_rdb_file(&mut self) -> Result<()> {
-    //     eprintln!("reading rdb file");
-    //     self.stream.read_buf(&mut self.buffer).await?;
-    //     let mut buf = Cursor::new(&self.buffer[..]);
-    //     eprintln!("before parsing rdb file\n{:?}", self.buffer);
-    //     parse_rdb_file(&mut buf)?;
-    //     let len = buf.position() as usize;
-    //     self.buffer.advance(len);
-    //     eprintln!("after parsing rdb file\n{:#?}", self.buffer);
-    //     Ok(())
-    // }
-
     pub async fn write_rdb_file(&mut self, rdb_file: Bytes) -> Result<()> {
         self.stream.write_u8(b'$').await?;
         self.write_u64(rdb_file.len() as u64).await?;
@@ -121,8 +109,6 @@ impl Connection {
     }
 
     pub fn send_to_replicas_connections(&mut self, frame: Frame) -> Result<()> {
-        // ignore error if no one is subscribed
-        eprintln!("reciever count {:}", self.frame_broadcast.receiver_count());
         if let Err(_) = self.frame_broadcast.send(frame) {
             eprintln!("error senging to replicas");
         };
