@@ -61,11 +61,21 @@ impl SlaveReplicationHandle {
             };
 
             let frame_bytes_len = frame.to_bytes().len();
-            eprintln!("replica got {:?}", frame);
+            eprintln!(
+                "[Replica@{:?}] recieved {:?}",
+                self.connection.local_addr().port(),
+                frame
+            );
             let command = Command::from_frame(frame)?;
 
             if let Command::Replconf(cmd) = command {
                 let frame = cmd.apply(&mut self.connection, offset)?;
+                eprintln!(
+                    "[Replica@{:?}] sending {:?} to {:?}",
+                    self.connection.local_addr().port(),
+                    frame,
+                    self.connection.peer_addr(),
+                );
                 self.connection.write_frame(&frame).await?;
             } else {
                 command.apply(&self.db, &mut self.connection).await?;
@@ -104,23 +114,21 @@ impl MasterReplicationHandle {
                 _ = self.connection.read_frame() => {}
                 propagated_frame = self.repl_frame_propagation.recv() => {
                     let frame = propagated_frame?;
+                    eprintln!("[master:replica@{:?}] propagating     {:?}",   self.connection.peer_addr().port(),frame);
                     self.connection.write_frame(&frame).await?;
                     self.info.incement_offset(frame.to_bytes().len())?;
-                    eprintln!("Recieved propagation {:?} for {:?}", frame, self.connection.stream.get_ref().peer_addr().unwrap());
                 }
                 server_cmd = self.server_command_propagation.recv() => {
                     let server_cmd = server_cmd?;
-                    eprintln!("Recieved serer cmd {:?} for {:?}", server_cmd.cmd, self.connection.stream.get_ref().peer_addr().unwrap());
+                    eprintln!("[master:replica@{:?}] writing frame   {:?}",   self.connection.peer_addr().port(),server_cmd.cmd);
                     self.connection.write_frame(&server_cmd.cmd).await?;
+                    eprintln!("[master:replica@{:?}] frame written", self.connection.peer_addr().port());
                     let response = self.connection.read_frame().await?;
-
-                    eprintln!("Received reponse to server cmd");
+                    eprintln!("[master:replica@{:?}] recieving frame {:?}",   self.connection.peer_addr().port(),response);
 
                     if response.is_some() {
-                        eprintln!("{:?}", response.as_ref().unwrap());
                         if let Err(_) = server_cmd.response_channel.send(response.unwrap()).await {};
                     }
-                    eprintln!("reponse to server cmd send to server");
 
                 }
             }
@@ -176,8 +184,6 @@ impl Handle {
                 dst.write_frame(&cmd.apply(dst)?).await?;
                 dst.write_rdb_file(self.db.to_rdb_file()).await?;
                 self.server_info.increment_replica_count()?;
-
-                eprintln!("replication registered");
 
                 return Err(HandleError::ReplicationStarted(self.connection));
             } else if let Command::Replconf(cmd) = command {
@@ -241,11 +247,7 @@ impl ServerQueryHandle {
                             response_channel: tx.clone(),
                         };
 
-                        // eprintln!(
-                        //     "server cmd reciever count {:}",
-                        //     self.server_cmd_tx.receiver_count()
-                        // );
-                        self.server_cmd_tx.send(server_cmd).map_err(|e| anyhow!("during sending cmd to replia conneciton following error occured; {:}", e))?;
+                        let recv_count = self.server_cmd_tx.send(server_cmd).map_err(|e| anyhow!("during sending cmd to replia conneciton following error occured; {:}", e))?;
 
                         let mut hit_count = 0;
                         let deadline = Instant::now() + timeout;
@@ -260,11 +262,8 @@ impl ServerQueryHandle {
                                 break;
                             }
 
-                            eprintln!("Reamining is {:?}", remaining);
-
                             match tokio::time::timeout(remaining, rx.recv()).await {
                                 Ok(response) => {
-                                    eprintln!("repponse {:?}", response);
                                     hit_count += 1;
                                 }
                                 Err(_) => break,
