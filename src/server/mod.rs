@@ -467,7 +467,6 @@ mod test {
         send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
 
         tokio::time::sleep(Duration::from_millis(500)).await;
-        let rec = { recieved_frames_0.lock().unwrap().clone() };
 
         assert_last_recieved(recieved_frames_0, vec!["SET", "foo", "1"]);
         assert_last_recieved(recieved_frames_1, vec!["SET", "foo", "1"]);
@@ -479,8 +478,8 @@ mod test {
         send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
         send_command_read_response(&mut master_client, &["WAIT", "2", "1000"], b":2\r\n").await;
 
-        // send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
-        // send_command_read_response(&mut master_client, &["WAIT", "3", "10"], b":0\r\n").await;
+        send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
+        send_command_read_response(&mut master_client, &["WAIT", "3", "10"], b":0\r\n").await;
 
         send_command_read_response(&mut master_client, &["SET", "foo", "1"], b"+OK\r\n").await;
         send_command_read_response(&mut master_client, &["WAIT", "3", "1000"], b":3\r\n").await;

@@ -116,7 +116,7 @@ impl MasterReplicationHandle {
 
                     if response.is_some() {
                         // eprintln!("{:?}", response.as_ref().unwrap());
-                        server_cmd.response_channel.send(response.unwrap()).await?;
+                        if let Err(_) = server_cmd.response_channel.send(response.unwrap()).await {};
                     }
 
                 }
