@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::time::Instant;
 use thiserror::Error;
 use tokio::sync::mpsc;
+use tokio::time::error::Elapsed;
 
 use crate::db::Db;
 use bytes::Bytes;
@@ -108,6 +109,26 @@ impl MasterReplicationHandle {
         }
     }
 
+    async fn send_and_recieve(&mut self, server_cmd: &ServerCommand) -> Result<()> {
+        self.connection.write_frame(&server_cmd.cmd).await?;
+        eprintln!(
+            "[master:replica@{:?}] frame written",
+            self.connection.peer_addr().port()
+        );
+        let response = self.connection.read_frame().await?;
+        eprintln!(
+            "[master:replica@{:?}] recieving frame {:?}",
+            self.connection.peer_addr().port(),
+            response
+        );
+
+        if response.is_some() {
+            if let Err(_) = server_cmd.response_channel.send(response.unwrap()).await {};
+        }
+
+        Ok(())
+    }
+
     pub(super) async fn run(mut self) -> Result<()> {
         loop {
             tokio::select! {
@@ -119,16 +140,8 @@ impl MasterReplicationHandle {
                 }
                 server_cmd = self.server_command_propagation.recv() => {
                     let server_cmd = server_cmd?;
+                    if let Err(_elapsed) = tokio::time::timeout(server_cmd.timeout, self.send_and_recieve(&server_cmd)).await {};
                     eprintln!("[master:replica@{:?}] writing frame   {:?}",   self.connection.peer_addr().port(),server_cmd.cmd);
-                    self.connection.write_frame(&server_cmd.cmd).await?;
-                    eprintln!("[master:replica@{:?}] frame written", self.connection.peer_addr().port());
-                    let response = self.connection.read_frame().await?;
-                    eprintln!("[master:replica@{:?}] recieving frame {:?}",   self.connection.peer_addr().port(),response);
-
-                    if response.is_some() {
-                        if let Err(_) = server_cmd.response_channel.send(response.unwrap()).await {};
-                    }
-
                 }
             }
         }
@@ -244,6 +257,7 @@ impl ServerQueryHandle {
                                 "REPLCONF", "GETACK", "*",
                             ]),
                             response_channel: tx.clone(),
+                            timeout,
                         };
 
                         let recv_count = self.server_cmd_tx.send(server_cmd).map_err(|e| anyhow!("during sending cmd to replia conneciton following error occured; {:}", e))?;

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
 #[derive(Debug)]
@@ -74,6 +75,7 @@ impl ToFrame for ReplicationInfo {
 pub(super) struct ServerCommand {
     pub(super) cmd: Frame,
     pub(super) response_channel: mpsc::Sender<Frame>,
+    pub(super) timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
