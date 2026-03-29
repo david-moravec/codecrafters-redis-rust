@@ -112,14 +112,15 @@ impl MasterReplicationHandle {
     async fn send_and_recieve(&mut self, server_cmd: &ServerCommand) -> Result<()> {
         self.connection.write_frame(&server_cmd.cmd).await?;
         eprintln!(
-            "[master:replica@{:?}] frame written",
-            self.connection.peer_addr().port()
+            "[master:replica@{:?}]: sending     {:?}",
+            self.connection.peer_addr().port(),
+            server_cmd.cmd
         );
         let response = self.connection.read_frame().await?;
         eprintln!(
-            "[master:replica@{:?}] recieving frame {:?}",
+            "[master:replica@{:?}]: got         {:?}",
             self.connection.peer_addr().port(),
-            response
+            response,
         );
 
         if response.is_some() {
@@ -131,17 +132,23 @@ impl MasterReplicationHandle {
 
     pub(super) async fn run(mut self) -> Result<()> {
         loop {
+            eprintln!(
+                "[master:replica@{:?}]: ready to propagate or write",
+                self.connection.peer_addr().port(),
+            );
             tokio::select! {
                 propagated_frame = self.repl_frame_propagation.recv() => {
                     let frame = propagated_frame?;
-                    eprintln!("[master:replica@{:?}] propagating     {:?}",   self.connection.peer_addr().port(),frame);
+                    eprintln!("[master:replica@{:?}]: propagating {:?}",   self.connection.peer_addr().port(),frame);
                     self.connection.write_frame(&frame).await?;
                     self.info.incement_offset(frame.to_bytes().len())?;
+                    eprintln!("[master:replica@{:?}]: propagated",   self.connection.peer_addr().port());
                 }
                 server_cmd = self.server_command_propagation.recv() => {
                     let server_cmd = server_cmd?;
+                    eprintln!("[master:replica@{:?}]: writing     {:?}",   self.connection.peer_addr().port(),server_cmd.cmd);
                     if let Err(_elapsed) = tokio::time::timeout(server_cmd.timeout, self.send_and_recieve(&server_cmd)).await {};
-                    eprintln!("[master:replica@{:?}] writing frame   {:?}",   self.connection.peer_addr().port(),server_cmd.cmd);
+                    eprintln!("[master:replica@{:?}]: written",   self.connection.peer_addr().port());
                 }
             }
         }
