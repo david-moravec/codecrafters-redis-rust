@@ -137,6 +137,7 @@ impl MasterReplicationHandle {
                 self.connection.peer_addr().port(),
             );
             tokio::select! {
+                biased;
                 propagated_frame = self.repl_frame_propagation.recv() => {
                     let frame = propagated_frame?;
                     eprintln!("[master:replica@{:?}]: propagating {:?}",   self.connection.peer_addr().port(),frame);
