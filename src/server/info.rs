@@ -27,7 +27,7 @@ impl Display for Role {
 pub struct ReplicationInfo {
     pub(crate) role: Role,
     pub(crate) count: Mutex<u64>,
-    pub(crate) repl_offset: Mutex<usize>,
+    pub(crate) offset: Mutex<usize>,
 }
 
 impl ReplicationInfo {
@@ -52,7 +52,7 @@ impl ReplicationInfo {
         Self {
             role,
             count: Mutex::new(0),
-            repl_offset: Mutex::new(0),
+            offset: Mutex::new(0),
         }
     }
 }
@@ -65,7 +65,7 @@ impl ToFrame for ReplicationInfo {
                 "role:{}\nmaster_replid:{}\nmaster_repl_offset:{:}",
                 self.role,
                 repl_id,
-                *self.repl_offset.lock().unwrap()
+                *self.offset.lock().unwrap()
             ))),
         }
     }
@@ -132,22 +132,14 @@ impl ServerInfo {
     }
 
     pub(super) fn incement_offset(&self, offset_incr: usize) -> Result<()> {
-        if let Role::Master { .. } = self.shared.replication.role {
-            let mut offset = self.shared.replication.repl_offset.lock().unwrap();
-            *offset += offset_incr;
-            Ok(())
-        } else {
-            Err(anyhow!("slaves cannot have replicas"))
-        }
+        let mut offset = self.shared.replication.offset.lock().unwrap();
+        *offset += offset_incr;
+        Ok(())
     }
 
     pub(crate) fn offset(&self) -> Result<usize> {
-        if let Role::Master { .. } = self.shared.replication.role {
-            let offset = self.shared.replication.repl_offset.lock().unwrap();
-            Ok(*offset)
-        } else {
-            Err(anyhow!("slaves cannot have replicas"))
-        }
+        let offset = self.shared.replication.offset.lock().unwrap();
+        Ok(*offset)
     }
 }
 
