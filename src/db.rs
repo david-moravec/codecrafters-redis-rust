@@ -1,5 +1,6 @@
 use bytes::{Buf, Bytes};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     cmp::max,
     collections::HashMap,
@@ -9,6 +10,7 @@ use std::{
 use tokio::sync::Notify;
 use tokio::sync::oneshot;
 
+use crate::rdb_file::{RdbFile, RdbFileError};
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError, XRange, XRead};
 use thiserror::Error;
 
@@ -66,6 +68,26 @@ impl State {
             db: HashMap::new(),
             streams: HashMap::new(),
             expiry: HashMap::new(),
+            blpop_waiters: HashMap::new(),
+            blpop_waiters_ready: vec![],
+            xread_waiters: HashMap::new(),
+            xread_waiters_ready: vec![],
+        }
+    }
+
+    fn from_rdb_file(rdb_file: RdbFile) -> Self {
+        let mut expiry = HashMap::new();
+        for (key, dur) in rdb_file.expiry.into_iter() {
+            let now = Instant::now();
+            let duration = dur - SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            let e = Expiry { now, duration };
+            expiry.insert(key, e);
+        }
+
+        Self {
+            db: rdb_file.db,
+            streams: HashMap::new(),
+            expiry,
             blpop_waiters: HashMap::new(),
             blpop_waiters_ready: vec![],
             xread_waiters: HashMap::new(),
@@ -162,10 +184,34 @@ impl Db {
             xread_waiters_background_task: Notify::new(),
         });
 
-        tokio::spawn(blpop_waiters_background_process(shared.clone()));
-        tokio::spawn(xread_waiters_background_process(shared.clone()));
+        Db::init_background_processes(shared.clone());
 
         Db { shared }
+    }
+
+    pub fn from_rdb_file(file_path: &std::path::Path) -> Self {
+        let mut rdb_file = RdbFile::new();
+        let state = match rdb_file.parse(file_path) {
+            Ok(()) => Mutex::new(State::from_rdb_file(rdb_file)),
+
+            Err(err) => {
+                eprintln!("During parsing of rdb file error occured; {:}", err);
+                Mutex::new(State::new())
+            }
+        };
+        let shared = Arc::new(Shared {
+            state,
+            blpop_waiters_background_task: Notify::new(),
+            xread_waiters_background_task: Notify::new(),
+        });
+        Db::init_background_processes(shared.clone());
+
+        Db { shared }
+    }
+
+    fn init_background_processes(shared: Arc<Shared>) {
+        tokio::spawn(blpop_waiters_background_process(shared.clone()));
+        tokio::spawn(xread_waiters_background_process(shared.clone()));
     }
 
     pub fn get(&self, key: &str) -> Option<Bytes> {

@@ -434,7 +434,7 @@ fn get_bytes(buf: &mut Cursor<&[u8]>) -> FrameResult<Bytes> {
     Ok(data)
 }
 
-fn skip(buf: &mut Cursor<&[u8]>, n: usize) -> FrameResult<()> {
+pub(crate) fn skip(buf: &mut Cursor<&[u8]>, n: usize) -> FrameResult<()> {
     if buf.remaining() < n {
         return Err(FrameError::Incomplete);
     }
@@ -443,7 +443,7 @@ fn skip(buf: &mut Cursor<&[u8]>, n: usize) -> FrameResult<()> {
     Ok(())
 }
 
-fn peek_u8(buf: &Cursor<&[u8]>) -> FrameResult<u8> {
+pub(crate) fn peek_u8(buf: &Cursor<&[u8]>) -> FrameResult<u8> {
     if !buf.has_remaining() {
         return Err(FrameError::Incomplete);
     }
@@ -477,7 +477,7 @@ fn get_encoding(buf: &mut Cursor<&[u8]>) -> FrameResult<Encoding> {
     Err(FrameError::Incomplete)
 }
 
-fn get_u8(buf: &mut Cursor<&[u8]>) -> FrameResult<u8> {
+pub(crate) fn get_u8(buf: &mut Cursor<&[u8]>) -> FrameResult<u8> {
     if !buf.has_remaining() {
         Err(FrameError::Incomplete)
     } else {

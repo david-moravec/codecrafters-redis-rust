@@ -3,6 +3,7 @@ mod connection;
 mod db;
 mod frame;
 mod parser;
+mod rdb_file;
 mod server;
 mod stream;
 

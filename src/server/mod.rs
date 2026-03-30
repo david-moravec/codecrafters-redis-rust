@@ -3,6 +3,7 @@ pub mod info;
 mod replicationbroadcast;
 
 use anyhow::Result;
+use bytes::Bytes;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
@@ -46,8 +47,13 @@ impl Server {
             db_file_name.unwrap_or(std::path::PathBuf::from("dump.rdb")),
         );
 
+        let mut file_path = info.config_dir();
+        file_path.push(info.config_db_file_name());
+
+        let db = Db::from_rdb_file(&file_path);
+
         Self {
-            db: Db::new(),
+            db,
             info,
             replication_broadcast: ReplicationBroadcast::new(),
         }
