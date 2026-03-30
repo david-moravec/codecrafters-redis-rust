@@ -35,8 +35,16 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(master_address: Option<String>) -> Self {
-        let info = ServerInfo::new(master_address);
+    pub fn new(
+        master_address: Option<String>,
+        dir: Option<std::path::PathBuf>,
+        db_file_name: Option<std::path::PathBuf>,
+    ) -> Self {
+        let info = ServerInfo::new(
+            master_address,
+            dir.unwrap_or(std::env::current_dir().unwrap()),
+            db_file_name.unwrap_or(std::path::PathBuf::from("dump.rdb")),
+        );
 
         Self {
             db: Db::new(),
@@ -146,6 +154,7 @@ impl Server {
 mod test {
     use bytes::Bytes;
     use std::net::SocketAddr;
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tokio::sync::broadcast;
@@ -171,7 +180,7 @@ mod test {
 
         async fn run(&self, master_addr: &SocketAddr) -> Result<()> {
             let (tx, rx) = broadcast::channel(16);
-            let info = ServerInfo::new(None);
+            let info = ServerInfo::new(None, PathBuf::new(), PathBuf::new());
             let mut connection =
                 Connection::new(TcpStream::connect(master_addr).await?, info, Arc::new(tx));
 
@@ -258,7 +267,7 @@ mod test {
             .await
             .unwrap();
 
-        let server = Server::new(None);
+        let server = Server::new(None, None, None);
         let local_addres = listener.local_addr().unwrap();
 
         tokio::spawn(async move {
@@ -289,7 +298,7 @@ mod test {
             .await
             .unwrap();
 
-        let server = Server::new(Some(master_addr));
+        let server = Server::new(Some(master_addr), None, None);
         let local_addres = listener.local_addr().unwrap();
 
         tokio::spawn(async move {
@@ -365,8 +374,11 @@ mod test {
         let master_replica_stream = replication_socket.0;
         let tx: broadcast::Sender<Frame> = broadcast::channel(16).0;
 
-        let mut master_replica_connection =
-            Connection::new(master_replica_stream, ServerInfo::new(None), Arc::new(tx));
+        let mut master_replica_connection = Connection::new(
+            master_replica_stream,
+            ServerInfo::new(None, PathBuf::new(), PathBuf::new()),
+            Arc::new(tx),
+        );
 
         replication_handshake(&mut master_replica_connection)
             .await
@@ -429,7 +441,11 @@ mod test {
         let addr = start_master("0").await;
         let stream = TcpStream::connect(addr).await.unwrap();
         let tx: broadcast::Sender<Frame> = broadcast::channel(16).0;
-        let mut connection = Connection::new(stream, ServerInfo::new(None), Arc::new(tx));
+        let mut connection = Connection::new(
+            stream,
+            ServerInfo::new(None, PathBuf::new(), PathBuf::new()),
+            Arc::new(tx),
+        );
 
         connection
             .send_command(&["WAIT", "0", "500"])
@@ -468,7 +484,11 @@ mod test {
 
         let master_stream = TcpStream::connect(master_address).await.unwrap();
         let tx: broadcast::Sender<Frame> = broadcast::channel(16).0;
-        let mut master_client = Connection::new(master_stream, ServerInfo::new(None), Arc::new(tx));
+        let mut master_client = Connection::new(
+            master_stream,
+            ServerInfo::new(None, PathBuf::new(), PathBuf::new()),
+            Arc::new(tx),
+        );
 
         tokio::time::sleep(Duration::from_millis(500)).await;
 

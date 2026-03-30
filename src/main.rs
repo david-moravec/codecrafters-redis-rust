@@ -16,6 +16,10 @@ struct Args {
     port: String,
     #[arg(long)]
     replicaof: Option<String>,
+    #[arg(long)]
+    dir: Option<std::path::PathBuf>,
+    #[arg(long)]
+    dbfilename: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -25,7 +29,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{:}", args.port))
         .await
         .unwrap();
-    let server = Server::new(args.replicaof);
+    let server = Server::new(args.replicaof, args.dir, args.dbfilename);
     if let Err(e) = server.run(listener).await {
         eprintln!("When running server following error occured: \n{}", e);
     };

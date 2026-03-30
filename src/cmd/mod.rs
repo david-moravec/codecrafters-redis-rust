@@ -1,4 +1,5 @@
 mod blpop;
+mod config;
 mod discard;
 mod echo;
 mod exec;
@@ -28,6 +29,7 @@ use crate::parser::Parse;
 
 use anyhow::{Result, anyhow};
 use blpop::BLPop;
+use config::Config;
 use discard::Discard;
 use echo::Echo;
 use exec::Exec;
@@ -74,6 +76,7 @@ pub enum Command {
     Replconf(Replconf),
     Psync(Psync),
     Wait(Wait),
+    Config(Config),
 }
 
 impl Command {
@@ -105,6 +108,7 @@ impl Command {
             "replconf" => Command::Replconf(Replconf::parse(&mut parse)?),
             "psync" => Command::Psync(Psync::parse(&mut parse)?),
             "wait" => Command::Wait(Wait::parse(&mut parse)?),
+            "config" => Command::Config(Config::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -137,6 +141,7 @@ impl Command {
             Self::Replconf(_) => unreachable!(),
             Self::Psync(_) => unreachable!(),
             Self::Wait(_) => unreachable!(),
+            Self::Config(_) => unreachable!(),
         }
     }
 
@@ -148,6 +153,7 @@ impl Command {
             Self::Replconf(_) => unreachable!(),
             Self::Psync(_) => unreachable!(),
             Self::Wait(_) => unreachable!(),
+            Self::Config(_) => unreachable!(),
             _ => {
                 if dst.is_queueing_commands {
                     dst.command_queue.push_back(self);

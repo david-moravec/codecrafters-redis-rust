@@ -79,18 +79,36 @@ pub(super) struct ServerCommand {
 }
 
 #[derive(Debug, Clone)]
+pub(super) struct RdbConfig {
+    dir: std::path::PathBuf,
+    db_file_name: std::path::PathBuf,
+}
+
+impl RdbConfig {
+    fn new(dir: std::path::PathBuf, db_file_name: std::path::PathBuf) -> Self {
+        Self { dir, db_file_name }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct Shared {
     replication: Arc<ReplicationInfo>,
     server_broadcast: Arc<broadcast::Sender<ServerCommand>>,
+    config: Arc<RdbConfig>,
 }
 
 impl Shared {
-    fn new(master_address: Option<String>) -> Self {
+    fn new(
+        master_address: Option<String>,
+        dir: std::path::PathBuf,
+        db_file_name: std::path::PathBuf,
+    ) -> Self {
         let (tx, _) = broadcast::channel(16);
 
         Shared {
             replication: Arc::new(ReplicationInfo::new(master_address)),
             server_broadcast: Arc::new(tx),
+            config: Arc::new(RdbConfig::new(dir, db_file_name)),
         }
     }
 }
@@ -101,9 +119,13 @@ pub struct ServerInfo {
 }
 
 impl ServerInfo {
-    pub fn new(master_address: Option<String>) -> Self {
+    pub fn new(
+        master_address: Option<String>,
+        dir: std::path::PathBuf,
+        db_file_name: std::path::PathBuf,
+    ) -> Self {
         Self {
-            shared: Shared::new(master_address),
+            shared: Shared::new(master_address, dir, db_file_name),
         }
     }
 
@@ -140,6 +162,14 @@ impl ServerInfo {
     pub(crate) fn offset(&self) -> Result<usize> {
         let offset = self.shared.replication.offset.lock().unwrap();
         Ok(*offset)
+    }
+
+    pub(crate) fn config_dir(&self) -> std::path::PathBuf {
+        self.shared.config.dir.clone()
+    }
+
+    pub(crate) fn config_db_file_name(&self) -> std::path::PathBuf {
+        self.shared.config.db_file_name.clone()
     }
 }
 

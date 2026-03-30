@@ -198,12 +198,13 @@ impl Handle {
             };
 
             let command = Command::from_frame(frame)?;
+            let server_info = self.server_info.clone();
 
             if let Command::Psync(cmd) = command {
                 let dst = &mut self.connection;
                 dst.write_frame(&cmd.apply(dst)?).await?;
                 dst.write_rdb_file(self.db.to_rdb_file()).await?;
-                self.server_info.increment_replica_count()?;
+                server_info.increment_replica_count()?;
 
                 return Err(HandleError::ReplicationStarted(self.connection));
             } else if let Command::Replconf(cmd) = command {
@@ -211,6 +212,9 @@ impl Handle {
                 self.connection.write_frame(&frame).await?;
             } else if let Command::Wait(cmd) = command {
                 let frame = cmd.apply(&mut self.query_tx).await?;
+                self.connection.write_frame(&frame).await?;
+            } else if let Command::Config(cmd) = command {
+                let frame = cmd.apply(server_info)?;
                 self.connection.write_frame(&frame).await?;
             } else {
                 let response = command.apply(&self.db, &mut self.connection).await?;
