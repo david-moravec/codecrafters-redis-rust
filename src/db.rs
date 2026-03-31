@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use std::sync::Arc;
 use std::{
     cmp::max,
@@ -51,8 +51,7 @@ pub struct XReadWaiter {
 
 #[derive(Debug)]
 struct State {
-    db: HashMap<String, Bytes>,
-    list_db: HashMap<String, Vec<Bytes>>,
+    db: HashMap<String, Vec<Bytes>>,
     streams: HashMap<String, Stream>,
     expiry: HashMap<String, Expiry>,
     blpop_waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
@@ -65,7 +64,6 @@ impl State {
     fn new() -> Self {
         Self {
             db: HashMap::new(),
-            list_db: HashMap::new(),
             streams: HashMap::new(),
             expiry: HashMap::new(),
             blpop_waiters: HashMap::new(),
@@ -92,7 +90,7 @@ impl Shared {
 
         for key in ready_waiters {
             loop {
-                let data = state.list_db.get(&key).unwrap()[0].clone();
+                let data = state.db.get(&key).unwrap()[0].clone();
 
                 match state.blpop_waiters.get_mut(&key) {
                     Some(waiters) => {
@@ -104,7 +102,7 @@ impl Shared {
                         match waiter.send(data) {
                             Ok(()) => {
                                 // Sending was succesful remove the data
-                                state.list_db.get_mut(&key).unwrap().remove(0);
+                                state.db.get_mut(&key).unwrap().remove(0);
                                 break;
                             }
                             Err(_) => {}
@@ -182,7 +180,7 @@ impl Db {
             }
         }
 
-        state.db.get(key).map(|b| b.clone())
+        state.db.get(key).map(|b| b.clone().pop()).flatten()
     }
 
     pub fn set(&self, key: String, value: Bytes, expire: Option<Duration>) {
@@ -192,19 +190,19 @@ impl Db {
             state.expiry.insert(key.clone(), Expiry::from(expire));
         }
 
-        state.db.insert(key, value);
+        state.db.insert(key, vec![value]);
     }
 
     pub fn incr(&self, key: String) -> CommandResult<u64> {
         let mut state = self.shared.state.lock().unwrap();
 
-        let entry = state.db.entry(key).or_insert(Bytes::from("0"));
+        let entry = state.db.entry(key).or_insert(vec![Bytes::from("0")]);
 
         use atoi::atoi;
 
-        let mut number = atoi::<u64>(entry).ok_or(CommandError::NotANumber)?;
+        let mut number = atoi::<u64>(entry[0].chunk()).ok_or(CommandError::NotANumber)?;
         number += 1;
-        *entry = Bytes::from(format!("{:}", number));
+        entry[0] = Bytes::from(format!("{:}", number));
 
         Ok(number)
     }
@@ -222,7 +220,7 @@ impl Db {
         self.notify_blpop_waiters(&key);
         let mut state = self.shared.state.lock().unwrap();
 
-        let list = state.list_db.entry(key).or_insert_with(|| vec![]);
+        let list = state.db.entry(key).or_insert_with(|| vec![]);
 
         for value in values {
             list.push(value);
@@ -236,7 +234,7 @@ impl Db {
 
         let mut state = self.shared.state.lock().unwrap();
 
-        let list = state.list_db.entry(key).or_insert_with(|| vec![]);
+        let list = state.db.entry(key).or_insert_with(|| vec![]);
 
         for value in values {
             list.insert(0, value);
@@ -248,7 +246,7 @@ impl Db {
     pub fn lpop(&self, key: &str, start: Option<i64>, stop: Option<i64>) -> Option<Vec<Bytes>> {
         let mut state = self.shared.state.lock().unwrap();
 
-        let list = match state.list_db.get_mut(key) {
+        let list = match state.db.get_mut(key) {
             Some(l) => l,
             None => return None,
         };
@@ -312,14 +310,14 @@ impl Db {
 
     pub fn llen(&self, key: String) -> usize {
         let mut state = self.shared.state.lock().unwrap();
-        let list = state.list_db.entry(key).or_insert_with(|| vec![]);
+        let list = state.db.entry(key).or_insert_with(|| vec![]);
 
         list.len()
     }
 
     pub fn lrange(&self, key: &str, start: i64, stop: i64) -> Vec<Bytes> {
         let state = self.shared.state.lock().unwrap();
-        let list = match state.list_db.get(key) {
+        let list = match state.db.get(key) {
             Some(l) => l,
             None => return vec![],
         };
