@@ -16,7 +16,7 @@ pub enum StreamError {
     ZeroZeroID,
     #[error("ERR The ID has sequence or miliseconds missing")]
     MissingValue,
-    #[error("other error occured")]
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 

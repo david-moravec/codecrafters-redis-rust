@@ -14,7 +14,7 @@ pub(crate) struct Parse {
 pub enum ParseError {
     #[error("end of stream reached")]
     EndOfStream,
-    #[error("during parsing following error occured {0}")]
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 

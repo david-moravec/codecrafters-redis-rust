@@ -160,7 +160,7 @@ impl MasterReplicationHandle {
 pub(super) enum HandleError {
     #[error("replication started on this handle")]
     ReplicationStarted(Connection),
-    #[error("while running following error occured; {0}")]
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 

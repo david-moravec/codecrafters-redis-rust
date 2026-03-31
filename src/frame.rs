@@ -58,7 +58,7 @@ pub(crate) enum Frame {
 pub(crate) enum FrameError {
     #[error("Incomplete frame data")]
     Incomplete,
-    #[error("During framing error encountered: {0}")]
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
