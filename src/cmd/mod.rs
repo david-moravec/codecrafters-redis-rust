@@ -6,6 +6,7 @@ mod exec;
 mod get;
 mod incr;
 mod info;
+mod keys;
 mod llen;
 mod lpop;
 mod lpush;
@@ -36,6 +37,7 @@ use exec::Exec;
 use get::Get;
 use incr::Incr;
 use info::Info;
+use keys::Keys;
 use llen::LLen;
 use lpop::LPop;
 use lpush::LPush;
@@ -77,6 +79,7 @@ pub enum Command {
     Psync(Psync),
     Wait(Wait),
     Config(Config),
+    Keys(Keys),
 }
 
 impl Command {
@@ -109,6 +112,7 @@ impl Command {
             "psync" => Command::Psync(Psync::parse(&mut parse)?),
             "wait" => Command::Wait(Wait::parse(&mut parse)?),
             "config" => Command::Config(Config::parse(&mut parse)?),
+            "keys" => Command::Keys(Keys::parse(&mut parse)?),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -133,6 +137,7 @@ impl Command {
             Self::Type(cmd) => cmd.apply(db),
             Self::XAdd(cmd) => cmd.apply(db),
             Self::XRange(cmd) => cmd.apply(db),
+            Self::Keys(cmd) => cmd.apply(db),
             Self::XRead(cmd) => cmd.apply(db).await,
             Self::Info(cmd) => cmd.apply(dst).await,
             Self::Multi(_) => unreachable!(),

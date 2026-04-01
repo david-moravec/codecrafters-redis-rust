@@ -239,6 +239,21 @@ impl Db {
         state.db.insert(key, vec![value]);
     }
 
+    pub fn keys(&self, pattern: &str) -> Vec<String> {
+        let state = self.shared.state.lock().unwrap();
+
+        if pattern == "*" {
+            state.db.keys().cloned().collect()
+        } else {
+            state
+                .db
+                .keys()
+                .filter(|k| k.as_str() == pattern)
+                .cloned()
+                .collect()
+        }
+    }
+
     pub fn incr(&self, key: String) -> CommandResult<u64> {
         let mut state = self.shared.state.lock().unwrap();
 
@@ -496,5 +511,17 @@ async fn xread_waiters_background_process(shared: Arc<Shared>) {
     loop {
         shared.xread_waiters_background_task.notified().await;
         shared.handle_xread_waiters();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_db_from_rdb_file() {
+        let db = Db::from_rdb_file(std::path::Path::new("dump.rdb"));
+
+        assert!(db.get("ahoj") == Some(Bytes::from("helemese".to_string())));
     }
 }
