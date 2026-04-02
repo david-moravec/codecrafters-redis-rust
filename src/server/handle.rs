@@ -4,6 +4,7 @@ use std::time::Instant;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
+use crate::cmd::psync::Psync;
 use crate::db::Db;
 use bytes::Bytes;
 use tokio::sync::broadcast;
@@ -194,6 +195,16 @@ impl Handle {
         }
     }
 
+    async fn start_replication(mut self, cmd: Psync) -> HandleResult<()> {
+        let dst = &mut self.connection;
+        dst.write_frame(&cmd.apply(self.server_info.clone())?)
+            .await?;
+        dst.write_rdb_file(self.db.to_rdb_file()).await?;
+        self.server_info.increment_replica_count()?;
+
+        return Err(HandleError::ReplicationStarted(self.connection));
+    }
+
     pub(crate) async fn run(mut self) -> HandleResult<()> {
         loop {
             let maybe_frame = self.connection.read_frame().await?;
@@ -208,13 +219,7 @@ impl Handle {
             match command {
                 Command::Repl(cmd) => match cmd {
                     ReplCommand::Psync(cmd) => {
-                        let dst = &mut self.connection;
-                        dst.write_frame(&cmd.apply(self.server_info.clone())?)
-                            .await?;
-                        dst.write_rdb_file(self.db.to_rdb_file()).await?;
-                        self.server_info.increment_replica_count()?;
-
-                        return Err(HandleError::ReplicationStarted(self.connection));
+                        return self.start_replication(cmd).await;
                     }
                     ReplCommand::Replconf(cmd) => {
                         let frame = cmd.apply(0)?;

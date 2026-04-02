@@ -1,3 +1,4 @@
+pub mod psync;
 pub mod server_inquiry;
 
 mod blpop;
@@ -15,7 +16,6 @@ mod lpush;
 mod lrange;
 mod multi;
 mod ping;
-mod psync;
 mod replconf;
 mod rpush;
 mod set;
