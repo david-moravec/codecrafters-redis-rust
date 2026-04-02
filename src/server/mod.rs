@@ -3,28 +3,20 @@ pub mod info;
 mod replicationbroadcast;
 
 use anyhow::Result;
-use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use self::handle::{Handle, MasterReplicationHandle, SlaveReplicationHandle};
 use self::replicationbroadcast::ReplicationBroadcast;
 use crate::{
+    cmd::server_inquiry::ServerInquiry,
     db::Db,
-    server::handle::{HandleError, ServerQueryHandle},
+    server::handle::{HandleError, ServerInquiryHandle},
 };
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 
 use crate::connection::Connection;
 use info::{Role, ServerInfo};
-
-pub enum ReplicationCommand {
-    Wait {
-        count: u64,
-        timeout: Duration,
-        response: oneshot::Sender<u64>,
-    },
-}
 
 pub struct Server {
     db: Db,
@@ -78,10 +70,10 @@ impl Server {
     async fn respond_to_queries(
         &self,
         info: ServerInfo,
-        query_rx: mpsc::Receiver<ReplicationCommand>,
-        server_cmd_tx: broadcast::Sender<info::ServerCommand>,
+        query_rx: mpsc::Receiver<ServerInquiry>,
+        server_cmd_tx: broadcast::Sender<info::HandleInquiry>,
     ) -> Result<()> {
-        let handler = ServerQueryHandle::new(info, query_rx, server_cmd_tx);
+        let handler = ServerInquiryHandle::new(info, query_rx, server_cmd_tx);
 
         tokio::spawn(async move {
             if let Err(err) = handler.run().await {
@@ -162,7 +154,7 @@ mod test {
     use std::time::Duration;
     use tokio::sync::broadcast;
 
-    use crate::cmd::{Command, DbCommand};
+    use crate::cmd::Command;
     use crate::frame::Frame;
 
     use super::*;

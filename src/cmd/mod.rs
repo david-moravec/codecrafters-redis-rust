@@ -1,3 +1,5 @@
+pub mod server_inquiry;
+
 mod blpop;
 mod config;
 mod discard;
@@ -23,10 +25,10 @@ mod xadd;
 mod xrange;
 mod xread;
 
+use self::server_inquiry::ServerInquiry;
 use crate::db::Db;
 use crate::frame::Frame;
 use crate::parser::Parse;
-use crate::server::ReplicationCommand;
 use crate::{connection::Connection, server::info::ServerInfo};
 
 use anyhow::{Result, anyhow};
@@ -68,7 +70,7 @@ pub enum ServerCommand {
 }
 
 impl ServerCommand {
-    pub async fn apply(self, query_tx: &mut mpsc::Sender<ReplicationCommand>) -> Result<Frame> {
+    pub async fn apply(self, query_tx: &mut mpsc::Sender<ServerInquiry>) -> Result<Frame> {
         match self {
             Self::Wait(cmd) => cmd.apply(query_tx).await,
         }
@@ -204,7 +206,7 @@ impl Command {
         self,
         db: &Db,
         dst: &mut Connection,
-        query_tx: &mut mpsc::Sender<ReplicationCommand>,
+        query_tx: &mut mpsc::Sender<ServerInquiry>,
         server_info: ServerInfo,
     ) -> Result<Frame> {
         match self {

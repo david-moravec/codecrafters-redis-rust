@@ -8,8 +8,8 @@ use crate::db::Db;
 use bytes::Bytes;
 use tokio::sync::broadcast;
 
-use super::ReplicationCommand;
-use super::info::{ServerCommand, ServerInfo};
+use super::ServerInquiry;
+use super::info::{HandleInquiry, ServerInfo};
 use crate::cmd::{Command, ReplCommand};
 use crate::connection::Connection;
 use crate::frame::Frame;
@@ -97,7 +97,7 @@ pub struct MasterReplicationHandle {
     info: ServerInfo,
     connection: Connection,
     repl_frame_propagation: broadcast::Receiver<Frame>,
-    server_command_propagation: broadcast::Receiver<ServerCommand>,
+    server_command_propagation: broadcast::Receiver<HandleInquiry>,
 }
 
 impl MasterReplicationHandle {
@@ -105,7 +105,7 @@ impl MasterReplicationHandle {
         info: ServerInfo,
         connection: Connection,
         repl_frame_propagation: broadcast::Receiver<Frame>,
-        server_command_propagation: broadcast::Receiver<ServerCommand>,
+        server_command_propagation: broadcast::Receiver<HandleInquiry>,
     ) -> Self {
         Self {
             info,
@@ -115,7 +115,7 @@ impl MasterReplicationHandle {
         }
     }
 
-    async fn send_and_recieve(&mut self, server_cmd: &ServerCommand) -> Result<()> {
+    async fn send_and_recieve(&mut self, server_cmd: &HandleInquiry) -> Result<()> {
         self.connection.write_frame(&server_cmd.cmd).await?;
         eprintln!(
             "[master:replica@{:?}]: sending     {:?}",
@@ -176,7 +176,7 @@ pub(super) struct Handle {
     pub(crate) db: Db,
     connection: Connection,
     server_info: ServerInfo,
-    query_tx: mpsc::Sender<ReplicationCommand>,
+    query_tx: mpsc::Sender<ServerInquiry>,
 }
 
 impl Handle {
@@ -184,7 +184,7 @@ impl Handle {
         db: Db,
         connection: Connection,
         server_info: ServerInfo,
-        query_tx: mpsc::Sender<ReplicationCommand>,
+        query_tx: mpsc::Sender<ServerInquiry>,
     ) -> Self {
         Handle {
             db,
@@ -237,81 +237,33 @@ impl Handle {
     }
 }
 
-pub(super) struct ServerQueryHandle {
+pub(super) struct ServerInquiryHandle {
     info: ServerInfo,
-    query_rx: mpsc::Receiver<ReplicationCommand>,
-    server_cmd_tx: broadcast::Sender<ServerCommand>,
+    query_rx: mpsc::Receiver<ServerInquiry>,
+    handle_inquiry_tx: broadcast::Sender<HandleInquiry>,
 }
 
-impl ServerQueryHandle {
+impl ServerInquiryHandle {
     pub(super) fn new(
         info: ServerInfo,
-        query_rx: mpsc::Receiver<ReplicationCommand>,
-        server_cmd_tx: broadcast::Sender<ServerCommand>,
+        query_rx: mpsc::Receiver<ServerInquiry>,
+        handle_inquiry_tx: broadcast::Sender<HandleInquiry>,
     ) -> Self {
         Self {
             info,
             query_rx,
-            server_cmd_tx,
+            handle_inquiry_tx,
         }
     }
 
     pub(crate) async fn run(mut self) -> Result<()> {
         loop {
-            match self
-                .query_rx
+            self.query_rx
                 .recv()
                 .await
                 .ok_or(anyhow!("query channel closed"))?
-            {
-                ReplicationCommand::Wait {
-                    count,
-                    timeout,
-                    response,
-                } => {
-                    let replica_count = self.info.replica_count()?;
-
-                    if replica_count == 0 {
-                        if let Err(_) = response.send(0) {};
-                    } else if self.info.offset()? == 0 {
-                        if let Err(_) = response.send(self.info.replica_count()?) {};
-                    } else {
-                        let (tx, mut rx) = mpsc::channel(100);
-                        let server_cmd = ServerCommand {
-                            cmd: Frame::bulk_strings_array_from_str(vec![
-                                "REPLCONF", "GETACK", "*",
-                            ]),
-                            response_channel: tx.clone(),
-                            timeout,
-                        };
-
-                        let _= self.server_cmd_tx.send(server_cmd).map_err(|e| anyhow!("during sending cmd to replia conneciton following error occured; {:}", e))?;
-
-                        let mut hit_count = 0;
-                        let deadline = Instant::now() + timeout;
-
-                        loop {
-                            if hit_count == count {
-                                break;
-                            }
-                            let remaining = deadline.saturating_duration_since(Instant::now());
-
-                            if remaining.is_zero() {
-                                break;
-                            }
-
-                            match tokio::time::timeout(remaining, rx.recv()).await {
-                                Ok(_) => {
-                                    hit_count += 1;
-                                }
-                                Err(_) => break,
-                            };
-                        }
-
-                        if let Err(_) = response.send(hit_count) {};
-                    }
-                }
-            }
+                .apply(&mut self.handle_inquiry_tx, self.info.clone())
+                .await?
         }
     }
 }

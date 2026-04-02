@@ -3,7 +3,11 @@ use std::time::Duration;
 use anyhow::Result;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{frame::Frame, parser::Parse, server::ReplicationCommand};
+use crate::{
+    cmd::server_inquiry::{ServerInquiry, WaitInquiry},
+    frame::Frame,
+    parser::Parse,
+};
 
 #[derive(Debug)]
 pub struct Wait {
@@ -21,18 +25,18 @@ impl Wait {
         })
     }
 
-    pub async fn apply(self, query_tx: &mut mpsc::Sender<ReplicationCommand>) -> Result<Frame> {
+    pub async fn apply(self, query_tx: &mut mpsc::Sender<ServerInquiry>) -> Result<Frame> {
         let (tx, rx) = oneshot::channel();
-        query_tx
-            .send(ReplicationCommand::Wait {
-                count: self.replica_count,
-                timeout: Duration::from_millis(self.timeout),
-                response: tx,
-            })
-            .await?;
-
-        // TODO: timeout
+        query_tx.send(self.server_inquiry(tx)).await?;
         let response = rx.await?;
         Ok(Frame::Integer(response))
+    }
+
+    fn server_inquiry(&self, tx: oneshot::Sender<u64>) -> ServerInquiry {
+        ServerInquiry::Wait(WaitInquiry {
+            count: self.replica_count,
+            timeout: Duration::from_millis(self.timeout),
+            response: tx,
+        })
     }
 }

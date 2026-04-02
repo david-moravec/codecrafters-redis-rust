@@ -72,10 +72,10 @@ impl ToFrame for ReplicationInfo {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ServerCommand {
-    pub(super) cmd: Frame,
-    pub(super) response_channel: mpsc::Sender<Frame>,
-    pub(super) timeout: Duration,
+pub(crate) struct HandleInquiry {
+    pub(crate) cmd: Frame,
+    pub(crate) response_channel: mpsc::Sender<Frame>,
+    pub(crate) timeout: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +93,7 @@ impl RdbConfig {
 #[derive(Debug, Clone)]
 struct Shared {
     replication: Arc<ReplicationInfo>,
-    server_broadcast: Arc<broadcast::Sender<ServerCommand>>,
+    server_broadcast: Arc<broadcast::Sender<HandleInquiry>>,
     config: Arc<RdbConfig>,
 }
 
@@ -149,7 +149,7 @@ impl ServerInfo {
         }
     }
 
-    pub(super) fn server_broadcast_subscribe(&self) -> broadcast::Receiver<ServerCommand> {
+    pub(super) fn server_broadcast_subscribe(&self) -> broadcast::Receiver<HandleInquiry> {
         self.shared.server_broadcast.subscribe()
     }
 
