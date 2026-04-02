@@ -7,8 +7,9 @@ use crate::{
     server::info::{HandleInquiry, ServerInfo},
 };
 
-type SubscriptionMessage = String;
+pub type SubscriptionMessage = String;
 
+#[derive(Debug)]
 pub struct WaitInquiry {
     pub count: u64,
     pub timeout: Duration,
@@ -71,20 +72,22 @@ impl WaitInquiry {
     }
 }
 
-struct Subscribe {
-    channel_name: String,
-    response: oneshot::Sender<broadcast::Receiver<SubscriptionMessage>>,
+#[derive(Debug)]
+pub struct SubscribeInquiry {
+    pub channel_name: String,
+    pub response: oneshot::Sender<broadcast::Receiver<SubscriptionMessage>>,
 }
 
-impl Subscribe {
+impl SubscribeInquiry {
     fn apply(self) -> Result<()> {
-        Ok(())
+        todo!("Implement returning reciever to stream broadcas for given channel name")
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum ServerInquiry {
     Wait(WaitInquiry),
-    Subscribe(Subscribe),
+    Subscribe(SubscribeInquiry),
 }
 
 impl ServerInquiry {

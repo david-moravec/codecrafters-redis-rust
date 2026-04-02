@@ -1,5 +1,6 @@
 pub mod psync;
 pub mod server_inquiry;
+pub mod subscribe;
 
 mod blpop;
 mod config;
@@ -51,6 +52,7 @@ use psync::Psync;
 use replconf::Replconf;
 use rpush::RPush;
 use set::Set;
+use subscribe::Subscribe;
 use tokio::sync::mpsc;
 use type_cmd::Type;
 use wait::Wait;
@@ -62,6 +64,11 @@ use xread::XRead;
 pub enum ReplCommand {
     Replconf(Replconf),
     Psync(Psync),
+}
+
+#[derive(Debug)]
+pub enum SubscriptionCommand {
+    Subscribe(Subscribe),
 }
 
 #[derive(Debug)]
@@ -159,6 +166,7 @@ pub enum Command {
     Transaction(TransactionCommand),
     Repl(ReplCommand),
     Server(ServerCommand),
+    Subscription(SubscriptionCommand),
 }
 
 impl Command {
@@ -194,6 +202,9 @@ impl Command {
             "replconf" => Command::Repl(ReplCommand::Replconf(Replconf::parse(&mut parse)?)),
             "psync" => Command::Repl(ReplCommand::Psync(Psync::parse(&mut parse)?)),
             "wait" => Command::Server(ServerCommand::Wait(Wait::parse(&mut parse)?)),
+            "subscribe" => Command::Subscription(SubscriptionCommand::Subscribe(Subscribe::parse(
+                &mut parse,
+            )?)),
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -211,6 +222,7 @@ impl Command {
     ) -> Result<Frame> {
         match self {
             Self::Repl(_) => unreachable!(),
+            Self::Subscription(_) => unreachable!(),
             Self::Server(cmd) => cmd.apply(query_tx).await,
             Self::ServerInfo(cmd) => cmd.apply(server_info),
             Self::Transaction(cmd) => cmd.apply(db, dst).await,

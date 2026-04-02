@@ -1,17 +1,19 @@
 use anyhow::{Result, anyhow};
 use std::net::SocketAddr;
-use std::time::Instant;
 use thiserror::Error;
 use tokio::sync::mpsc;
+use tokio_stream::{StreamExt, StreamMap, wrappers::BroadcastStream};
 
 use crate::cmd::psync::Psync;
+use crate::cmd::server_inquiry::{self, SubscriptionMessage};
+use crate::cmd::subscribe::Subscribe;
 use crate::db::Db;
 use bytes::Bytes;
 use tokio::sync::broadcast;
 
 use super::ServerInquiry;
 use super::info::{HandleInquiry, ServerInfo};
-use crate::cmd::{Command, ReplCommand};
+use crate::cmd::{Command, ReplCommand, SubscriptionCommand};
 use crate::connection::Connection;
 use crate::frame::Frame;
 
@@ -84,7 +86,7 @@ impl SlaveReplicationHandle {
                     _ => unreachable!(),
                 },
                 Command::Db(cmd) => {
-                    cmd.apply(&self.db, &mut self.connection).await;
+                    cmd.apply(&self.db, &mut self.connection).await?;
                 }
                 _ => unreachable!(),
             }
@@ -205,6 +207,40 @@ impl Handle {
         return Err(HandleError::ReplicationStarted(self.connection));
     }
 
+    async fn start_subscription(mut self, cmd: Subscribe) -> HandleResult<Self> {
+        eprintln!("subscription starts");
+        let mut streams = StreamMap::new();
+        let frame = cmd.apply(&mut self.server_inquiry_tx, &mut streams).await?;
+        eprintln!("{:?}", frame);
+        self.connection.write_frame(&frame).await?;
+
+        loop {
+            tokio::select! {
+                Some((channel_name, Ok(msg))) = streams.next() => {
+
+                }
+                result_maybe_frame = self.connection.read_frame() => {
+                    let frame = match result_maybe_frame {
+                        Ok(Some(frame)) => frame,
+                        Ok(None) => {return Ok(self);},
+                        Err(err) => return Err(err.into()),
+                    };
+
+                    let command = Command::from_frame(frame)?;
+
+                    if let Command::Subscription(subscription_command) = command {
+
+                    } else {
+                        eprintln!("Not supported command in subscription mode")
+                    }
+
+                }
+
+            }
+        }
+        // Ok(self)
+    }
+
     pub(crate) async fn run(mut self) -> HandleResult<()> {
         loop {
             let maybe_frame = self.connection.read_frame().await?;
@@ -224,6 +260,11 @@ impl Handle {
                     ReplCommand::Replconf(cmd) => {
                         let frame = cmd.apply(0)?;
                         self.connection.write_frame(&frame).await?;
+                    }
+                },
+                Command::Subscription(cmd) => match cmd {
+                    SubscriptionCommand::Subscribe(cmd) => {
+                        self = self.start_subscription(cmd).await?;
                     }
                 },
                 cmd => {
@@ -263,12 +304,16 @@ impl ServerInquiryHandle {
 
     pub(crate) async fn run(mut self) -> Result<()> {
         loop {
-            self.query_rx
-                .recv()
-                .await
-                .ok_or(anyhow!("query channel closed"))?
-                .apply(&mut self.handle_inquiry_tx, self.info.clone())
-                .await?
+            let query = self.query_rx.recv().await;
+            if let Some(query) = query {
+                eprintln!("{:?}", query);
+                query
+                    .apply(&mut self.handle_inquiry_tx, self.info.clone())
+                    .await?;
+            } else {
+                eprintln!("server inquiry channel closed");
+                return Ok(());
+            }
         }
     }
 }
