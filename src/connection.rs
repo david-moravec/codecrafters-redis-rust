@@ -4,7 +4,7 @@ use bytes::{Buf, BytesMut};
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
@@ -12,8 +12,8 @@ use tokio::{
 };
 
 use crate::cmd::Command;
-use crate::frame::{Frame, FrameError, ToFrame, parse_rdb_file};
-use crate::server::info::{ReplicationInfo, ServerInfo};
+use crate::frame::{Frame, FrameError, ToFrame};
+use crate::server::info::ServerInfo;
 
 #[derive(Debug)]
 pub(crate) struct Connection {
@@ -238,23 +238,11 @@ impl Connection {
         Ok(())
     }
 
-    async fn write_f64(&mut self, val: f64) -> Result<()> {
+    async fn write_f64(&mut self, _: f64) -> Result<()> {
         todo!()
     }
 
     async fn write_u64(&mut self, val: u64) -> Result<()> {
-        use std::io::Write;
-
-        let mut buf = [0u8; 12];
-        let mut buf = Cursor::new(&mut buf[..]);
-        write!(&mut buf, "{}", val)?;
-
-        let pos = buf.position() as usize;
-        self.stream.write_all(&buf.get_ref()[..pos]).await?;
-        Ok(())
-    }
-
-    async fn write_i64(&mut self, val: i64) -> Result<()> {
         use std::io::Write;
 
         let mut buf = [0u8; 12];

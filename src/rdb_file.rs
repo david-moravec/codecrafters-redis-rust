@@ -10,7 +10,7 @@ use thiserror::Error;
 use crate::frame::{FrameError, get_u8, peek_u8, skip};
 
 #[derive(Debug)]
-enum StringEncoding {
+pub(crate) enum StringEncoding {
     Bit8,
     Bit16,
     Bit32,
@@ -131,14 +131,14 @@ impl RdbFile {
             return Err(RdbFileError::UnexpectedSection(section_op_code));
         }
 
-        let db_index = get_u8(buf)?;
+        let _db_index = get_u8(buf)?;
 
         if get_u8(buf)? != 0xfb {
             return Err(RdbFileError::Other(anyhow!("expected a 0xFB section")));
         }
 
-        let hash_table_size = get_u8(buf)?;
-        let expiry_table_size = get_u8(buf)?;
+        let _hash_table_size = get_u8(buf)?;
+        let _expiry_table_size = get_u8(buf)?;
 
         loop {
             let expiry = self.parse_expiry(buf)?;

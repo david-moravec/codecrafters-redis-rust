@@ -10,7 +10,7 @@ use std::{
 use tokio::sync::Notify;
 use tokio::sync::oneshot;
 
-use crate::rdb_file::{RdbFile, RdbFileError};
+use crate::rdb_file::RdbFile;
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError, XRange, XRead};
 use thiserror::Error;
 
@@ -177,18 +177,6 @@ pub struct Db {
 }
 
 impl Db {
-    pub fn new() -> Self {
-        let shared = Arc::new(Shared {
-            state: Mutex::new(State::new()),
-            blpop_waiters_background_task: Notify::new(),
-            xread_waiters_background_task: Notify::new(),
-        });
-
-        Db::init_background_processes(shared.clone());
-
-        Db { shared }
-    }
-
     pub fn from_rdb_file(file_path: &std::path::Path) -> Self {
         let mut rdb_file = RdbFile::new();
         let state = match rdb_file.parse(file_path) {

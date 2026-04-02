@@ -3,8 +3,6 @@ pub mod info;
 mod replicationbroadcast;
 
 use anyhow::Result;
-use bytes::Bytes;
-use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
@@ -18,7 +16,6 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
 
 use crate::connection::Connection;
-use crate::frame::Frame;
 use info::{Role, ServerInfo};
 
 pub enum ReplicationCommand {
@@ -185,7 +182,7 @@ mod test {
         }
 
         async fn run(&self, master_addr: &SocketAddr) -> Result<()> {
-            let (tx, rx) = broadcast::channel(16);
+            let (tx, _) = broadcast::channel(16);
             let info = ServerInfo::new(None, PathBuf::new(), PathBuf::new());
             let mut connection =
                 Connection::new(TcpStream::connect(master_addr).await?, info, Arc::new(tx));
@@ -213,7 +210,7 @@ mod test {
             connection
                 .send_command(&["REPLCONF", "capa", "psync2"])
                 .await?;
-            let e = connection.read_frame().await?;
+            let _ = connection.read_frame().await?;
 
             connection.send_command(&["PSYNC", "?", "-1"]).await?;
             connection.read_frame().await?;
@@ -261,10 +258,6 @@ mod test {
                 }
                 offset += frame_byte_len;
             }
-        }
-
-        fn recieved_frames(&self) -> Vec<Frame> {
-            self.recieved_frames.lock().unwrap().clone()
         }
     }
 

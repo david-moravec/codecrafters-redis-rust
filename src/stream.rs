@@ -14,8 +14,6 @@ pub enum StreamError {
     NotGreaterThanLastId,
     #[error("ERR The ID specified in XADD must be greater than 0-0")]
     ZeroZeroID,
-    #[error("ERR The ID has sequence or miliseconds missing")]
-    MissingValue,
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

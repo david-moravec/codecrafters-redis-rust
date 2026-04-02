@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use std::time::Instant;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tokio::time::error::Elapsed;
 
 use crate::db::Db;
 use bytes::Bytes;
@@ -272,7 +271,7 @@ impl ServerQueryHandle {
                             timeout,
                         };
 
-                        let recv_count = self.server_cmd_tx.send(server_cmd).map_err(|e| anyhow!("during sending cmd to replia conneciton following error occured; {:}", e))?;
+                        let _= self.server_cmd_tx.send(server_cmd).map_err(|e| anyhow!("during sending cmd to replia conneciton following error occured; {:}", e))?;
 
                         let mut hit_count = 0;
                         let deadline = Instant::now() + timeout;
@@ -288,7 +287,7 @@ impl ServerQueryHandle {
                             }
 
                             match tokio::time::timeout(remaining, rx.recv()).await {
-                                Ok(response) => {
+                                Ok(_) => {
                                     hit_count += 1;
                                 }
                                 Err(_) => break,
