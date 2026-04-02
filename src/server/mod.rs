@@ -162,7 +162,7 @@ mod test {
     use std::time::Duration;
     use tokio::sync::broadcast;
 
-    use crate::cmd::Command;
+    use crate::cmd::{Command, DbCommand};
     use crate::frame::Frame;
 
     use super::*;
@@ -249,7 +249,7 @@ mod test {
                 }
                 let frame_byte_len = frame.to_bytes().len();
 
-                if let Command::Replconf(_) = Command::from_frame(frame)? {
+                if let Command::Repl(_) = Command::from_frame(frame)? {
                     if respond_to_ack {
                         connection
                             .send_command(&["REPLCONF", "ACK", &format!("{:}", offset)])

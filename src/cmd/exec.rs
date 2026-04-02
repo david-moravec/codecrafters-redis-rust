@@ -1,4 +1,4 @@
-use crate::cmd::Command;
+use crate::cmd::DbCommand;
 use crate::frame::Frame;
 use crate::parser::Parse;
 
@@ -21,11 +21,11 @@ impl Exec {
             frame = Frame::Error("ERR EXEC without MULTI".to_string());
         } else {
             dst.is_queueing_commands = false;
-            let command_queue: Vec<Command> = dst.command_queue.drain(..).collect();
+            let command_queue: Vec<DbCommand> = dst.command_queue.drain(..).collect();
             let mut responses: Vec<Frame> = vec![];
 
             for cmd in command_queue {
-                responses.push(Box::pin(cmd.apply_queueble(db, dst)).await?);
+                responses.push(Box::pin(cmd.apply(db, dst)).await?);
             }
 
             frame = Frame::Array(Some(responses))

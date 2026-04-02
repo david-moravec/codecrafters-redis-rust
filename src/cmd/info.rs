@@ -1,5 +1,6 @@
-use crate::frame::Frame;
+use crate::frame::{Frame, ToFrame};
 use crate::parser::Parse;
+use crate::server::info::ServerInfo;
 
 #[derive(Debug)]
 pub struct Info {
@@ -12,7 +13,7 @@ impl Info {
             arg: parse.next_string().ok(),
         })
     }
-    pub async fn apply(self, dst: &mut crate::connection::Connection) -> anyhow::Result<Frame> {
-        Ok(dst.info_to_frame())
+    pub fn apply(self, server_info: ServerInfo) -> anyhow::Result<Frame> {
+        Ok(server_info.to_frame())
     }
 }

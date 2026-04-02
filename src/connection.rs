@@ -11,7 +11,7 @@ use tokio::{
     net::TcpStream,
 };
 
-use crate::cmd::Command;
+use crate::cmd::DbCommand;
 use crate::frame::{Frame, FrameError, ToFrame};
 use crate::server::info::ServerInfo;
 
@@ -19,7 +19,7 @@ use crate::server::info::ServerInfo;
 pub(crate) struct Connection {
     pub stream: BufWriter<TcpStream>,
     buffer: BytesMut,
-    pub(crate) command_queue: VecDeque<Command>,
+    pub(crate) command_queue: VecDeque<DbCommand>,
     pub(crate) is_queueing_commands: bool,
     pub(crate) server_info: ServerInfo,
     pub(crate) frame_broadcast: Arc<Sender<Frame>>,
@@ -158,10 +158,6 @@ impl Connection {
             Err(FrameError::Incomplete) => Ok(None),
             Err(FrameError::Other(err)) => Err(err),
         }
-    }
-
-    pub fn info_to_frame(&self) -> Frame {
-        self.server_info.to_frame()
     }
 
     pub async fn send_command(&mut self, args: &[&str]) -> Result<()> {

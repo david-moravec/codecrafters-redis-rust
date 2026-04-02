@@ -10,7 +10,7 @@ use tokio::sync::broadcast;
 
 use super::ReplicationCommand;
 use super::info::{ServerCommand, ServerInfo};
-use crate::cmd::Command;
+use crate::cmd::{Command, ReplCommand};
 use crate::connection::Connection;
 use crate::frame::Frame;
 
@@ -68,17 +68,24 @@ impl SlaveReplicationHandle {
             );
             let command = Command::from_frame(frame)?;
 
-            if let Command::Replconf(cmd) = command {
-                let frame = cmd.apply(&mut self.connection, offset)?;
-                eprintln!(
-                    "[Replica@{:?}] sending {:?} to {:?}",
-                    self.connection.local_addr().port(),
-                    frame,
-                    self.connection.peer_addr(),
-                );
-                self.connection.write_frame(&frame).await?;
-            } else {
-                command.apply(&self.db, &mut self.connection).await?;
+            match command {
+                Command::Repl(cmd) => match cmd {
+                    ReplCommand::Replconf(cmd) => {
+                        let frame = cmd.apply(offset)?;
+                        eprintln!(
+                            "[Replica@{:?}] sending {:?} to {:?}",
+                            self.connection.local_addr().port(),
+                            frame,
+                            self.connection.peer_addr(),
+                        );
+                        self.connection.write_frame(&frame).await?;
+                    }
+                    _ => unreachable!(),
+                },
+                Command::Db(cmd) => {
+                    cmd.apply(&self.db, &mut self.connection).await;
+                }
+                _ => unreachable!(),
             }
 
             offset += frame_bytes_len;
@@ -197,28 +204,35 @@ impl Handle {
             };
 
             let command = Command::from_frame(frame)?;
-            let server_info = self.server_info.clone();
 
-            if let Command::Psync(cmd) = command {
-                let dst = &mut self.connection;
-                dst.write_frame(&cmd.apply(dst)?).await?;
-                dst.write_rdb_file(self.db.to_rdb_file()).await?;
-                server_info.increment_replica_count()?;
+            match command {
+                Command::Repl(cmd) => match cmd {
+                    ReplCommand::Psync(cmd) => {
+                        let dst = &mut self.connection;
+                        dst.write_frame(&cmd.apply(self.server_info.clone())?)
+                            .await?;
+                        dst.write_rdb_file(self.db.to_rdb_file()).await?;
+                        self.server_info.increment_replica_count()?;
 
-                return Err(HandleError::ReplicationStarted(self.connection));
-            } else if let Command::Replconf(cmd) = command {
-                let frame = cmd.apply(&mut self.connection, 0)?;
-                self.connection.write_frame(&frame).await?;
-            } else if let Command::Wait(cmd) = command {
-                let frame = cmd.apply(&mut self.query_tx).await?;
-                self.connection.write_frame(&frame).await?;
-            } else if let Command::Config(cmd) = command {
-                let frame = cmd.apply(server_info)?;
-                self.connection.write_frame(&frame).await?;
-            } else {
-                let response = command.apply(&self.db, &mut self.connection).await?;
-                self.connection.write_frame(&response).await?;
-            }
+                        return Err(HandleError::ReplicationStarted(self.connection));
+                    }
+                    ReplCommand::Replconf(cmd) => {
+                        let frame = cmd.apply(0)?;
+                        self.connection.write_frame(&frame).await?;
+                    }
+                },
+                cmd => {
+                    let frame = cmd
+                        .apply(
+                            &self.db,
+                            &mut self.connection,
+                            &mut self.query_tx,
+                            self.server_info.clone(),
+                        )
+                        .await?;
+                    self.connection.write_frame(&frame).await?;
+                }
+            };
         }
     }
 }

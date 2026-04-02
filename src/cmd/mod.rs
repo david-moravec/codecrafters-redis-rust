@@ -23,10 +23,11 @@ mod xadd;
 mod xrange;
 mod xread;
 
-use crate::connection::Connection;
 use crate::db::Db;
 use crate::frame::Frame;
 use crate::parser::Parse;
+use crate::server::ReplicationCommand;
+use crate::{connection::Connection, server::info::ServerInfo};
 
 use anyhow::{Result, anyhow};
 use blpop::BLPop;
@@ -48,6 +49,7 @@ use psync::Psync;
 use replconf::Replconf;
 use rpush::RPush;
 use set::Set;
+use tokio::sync::mpsc;
 use type_cmd::Type;
 use wait::Wait;
 use xadd::XAdd;
@@ -55,7 +57,58 @@ use xrange::XRange;
 use xread::XRead;
 
 #[derive(Debug)]
-pub enum Command {
+pub enum ReplCommand {
+    Replconf(Replconf),
+    Psync(Psync),
+}
+
+#[derive(Debug)]
+pub enum ServerCommand {
+    Wait(Wait),
+}
+
+impl ServerCommand {
+    pub async fn apply(self, query_tx: &mut mpsc::Sender<ReplicationCommand>) -> Result<Frame> {
+        match self {
+            Self::Wait(cmd) => cmd.apply(query_tx).await,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ServerInfoCommand {
+    Info(Info),
+    Config(Config),
+}
+
+impl ServerInfoCommand {
+    pub fn apply(self, server_info: ServerInfo) -> Result<Frame> {
+        match self {
+            Self::Info(cmd) => cmd.apply(server_info),
+            Self::Config(cmd) => cmd.apply(server_info),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum TransactionCommand {
+    Multi(Multi),
+    Exec(Exec),
+    Discard(Discard),
+}
+
+impl TransactionCommand {
+    pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
+        match self {
+            Self::Exec(cmd) => cmd.apply(db, dst).await,
+            Self::Discard(cmd) => cmd.apply(dst),
+            Self::Multi(cmd) => cmd.apply(dst),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum DbCommand {
     Ping(Ping),
     Get(Get),
     Echo(Echo),
@@ -71,57 +124,11 @@ pub enum Command {
     XAdd(XAdd),
     XRange(XRange),
     XRead(XRead),
-    Multi(Multi),
-    Exec(Exec),
-    Discard(Discard),
-    Info(Info),
-    Replconf(Replconf),
-    Psync(Psync),
-    Wait(Wait),
-    Config(Config),
     Keys(Keys),
 }
 
-impl Command {
-    pub fn from_frame(frame: Frame) -> Result<Command> {
-        let mut parse = Parse::new(frame)?;
-
-        let command_name = parse.next_string()?.to_lowercase();
-
-        let command = match &command_name[..] {
-            "ping" => Command::Ping(Ping::parse(&mut parse)?),
-            "get" => Command::Get(Get::parse(&mut parse)?),
-            "echo" => Command::Echo(Echo::parse(&mut parse)?),
-            "set" => Command::Set(Set::parse(&mut parse)?),
-            "incr" => Command::Incr(Incr::parse(&mut parse)?),
-            "rpush" => Command::RPush(RPush::parse(&mut parse)?),
-            "lrange" => Command::LRange(LRange::parse(&mut parse)?),
-            "lpush" => Command::LPush(LPush::parse(&mut parse)?),
-            "llen" => Command::LLen(LLen::parse(&mut parse)?),
-            "lpop" => Command::LPop(LPop::parse(&mut parse)?),
-            "blpop" => Command::BLPop(BLPop::parse(&mut parse)?),
-            "type" => Command::Type(Type::parse(&mut parse)?),
-            "xadd" => Command::XAdd(XAdd::parse(&mut parse)?),
-            "xrange" => Command::XRange(XRange::parse(&mut parse)?),
-            "xread" => Command::XRead(XRead::parse(&mut parse)?),
-            "multi" => Command::Multi(Multi::parse(&mut parse)?),
-            "exec" => Command::Exec(Exec::parse(&mut parse)?),
-            "discard" => Command::Discard(Discard::parse(&mut parse)?),
-            "info" => Command::Info(Info::parse(&mut parse)?),
-            "replconf" => Command::Replconf(Replconf::parse(&mut parse)?),
-            "psync" => Command::Psync(Psync::parse(&mut parse)?),
-            "wait" => Command::Wait(Wait::parse(&mut parse)?),
-            "config" => Command::Config(Config::parse(&mut parse)?),
-            "keys" => Command::Keys(Keys::parse(&mut parse)?),
-            _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
-        };
-
-        parse.finish()?;
-
-        Ok(command)
-    }
-
-    pub async fn apply_queueble(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
+impl DbCommand {
+    pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
         match self {
             Self::Ping(cmd) => cmd.apply(db),
             Self::Get(cmd) => cmd.apply(db),
@@ -139,32 +146,78 @@ impl Command {
             Self::XRange(cmd) => cmd.apply(db),
             Self::Keys(cmd) => cmd.apply(db),
             Self::XRead(cmd) => cmd.apply(db).await,
-            Self::Info(cmd) => cmd.apply(dst).await,
-            Self::Multi(_) => unreachable!(),
-            Self::Discard(_) => unreachable!(),
-            Self::Exec(_) => unreachable!(),
-            Self::Replconf(_) => unreachable!(),
-            Self::Psync(_) => unreachable!(),
-            Self::Wait(_) => unreachable!(),
-            Self::Config(_) => unreachable!(),
         }
     }
+}
 
-    pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
+#[derive(Debug)]
+pub enum Command {
+    Db(DbCommand),
+    ServerInfo(ServerInfoCommand),
+    Transaction(TransactionCommand),
+    Repl(ReplCommand),
+    Server(ServerCommand),
+}
+
+impl Command {
+    pub fn from_frame(frame: Frame) -> Result<Self> {
+        let mut parse = Parse::new(frame)?;
+
+        let command_name = parse.next_string()?.to_lowercase();
+
+        let command = match &command_name[..] {
+            "ping" => Command::Db(DbCommand::Ping(Ping::parse(&mut parse)?)),
+            "get" => Command::Db(DbCommand::Get(Get::parse(&mut parse)?)),
+            "echo" => Command::Db(DbCommand::Echo(Echo::parse(&mut parse)?)),
+            "set" => Command::Db(DbCommand::Set(Set::parse(&mut parse)?)),
+            "incr" => Command::Db(DbCommand::Incr(Incr::parse(&mut parse)?)),
+            "rpush" => Command::Db(DbCommand::RPush(RPush::parse(&mut parse)?)),
+            "lrange" => Command::Db(DbCommand::LRange(LRange::parse(&mut parse)?)),
+            "lpush" => Command::Db(DbCommand::LPush(LPush::parse(&mut parse)?)),
+            "llen" => Command::Db(DbCommand::LLen(LLen::parse(&mut parse)?)),
+            "lpop" => Command::Db(DbCommand::LPop(LPop::parse(&mut parse)?)),
+            "blpop" => Command::Db(DbCommand::BLPop(BLPop::parse(&mut parse)?)),
+            "type" => Command::Db(DbCommand::Type(Type::parse(&mut parse)?)),
+            "xadd" => Command::Db(DbCommand::XAdd(XAdd::parse(&mut parse)?)),
+            "xrange" => Command::Db(DbCommand::XRange(XRange::parse(&mut parse)?)),
+            "xread" => Command::Db(DbCommand::XRead(XRead::parse(&mut parse)?)),
+            "keys" => Command::Db(DbCommand::Keys(Keys::parse(&mut parse)?)),
+            "multi" => Command::Transaction(TransactionCommand::Multi(Multi::parse(&mut parse)?)),
+            "exec" => Command::Transaction(TransactionCommand::Exec(Exec::parse(&mut parse)?)),
+            "discard" => {
+                Command::Transaction(TransactionCommand::Discard(Discard::parse(&mut parse)?))
+            }
+            "info" => Command::ServerInfo(ServerInfoCommand::Info(Info::parse(&mut parse)?)),
+            "config" => Command::ServerInfo(ServerInfoCommand::Config(Config::parse(&mut parse)?)),
+            "replconf" => Command::Repl(ReplCommand::Replconf(Replconf::parse(&mut parse)?)),
+            "psync" => Command::Repl(ReplCommand::Psync(Psync::parse(&mut parse)?)),
+            "wait" => Command::Server(ServerCommand::Wait(Wait::parse(&mut parse)?)),
+            _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
+        };
+
+        parse.finish()?;
+
+        Ok(command)
+    }
+
+    pub async fn apply(
+        self,
+        db: &Db,
+        dst: &mut Connection,
+        query_tx: &mut mpsc::Sender<ReplicationCommand>,
+        server_info: ServerInfo,
+    ) -> Result<Frame> {
         match self {
-            Self::Exec(cmd) => cmd.apply(db, dst).await,
-            Self::Discard(cmd) => cmd.apply(dst),
-            Self::Multi(cmd) => cmd.apply(dst),
-            Self::Replconf(_) => unreachable!(),
-            Self::Psync(_) => unreachable!(),
-            Self::Wait(_) => unreachable!(),
-            Self::Config(_) => unreachable!(),
-            _ => {
+            Self::Repl(_) => unreachable!(),
+            Self::Server(cmd) => cmd.apply(query_tx).await,
+            Self::ServerInfo(cmd) => cmd.apply(server_info),
+            Self::Transaction(cmd) => cmd.apply(db, dst).await,
+            Self::Db(cmd) => {
                 if dst.is_queueing_commands {
-                    dst.command_queue.push_back(self);
+                    dst.command_queue.push_back(cmd);
                     Ok(Frame::Simple("QUEUED".to_string()))
                 } else {
-                    self.apply_queueble(db, dst).await
+                    cmd.apply(db, dst).await
                 }
             }
         }
