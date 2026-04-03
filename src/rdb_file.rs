@@ -311,6 +311,6 @@ mod tests {
         rdb_file.parse(Path::new("dump.rdb")).unwrap();
 
         eprintln!("{:?}", rdb_file);
-        assert!(rdb_file.db.get("ahoj").unwrap()[0] == Bytes::from("helemese".to_string()));
+        assert!(rdb_file.db.get("foo").unwrap()[0] == Bytes::from("bar".to_string()));
     }
 }

@@ -510,6 +510,6 @@ mod tests {
     async fn test_db_from_rdb_file() {
         let db = Db::from_rdb_file(std::path::Path::new("dump.rdb"));
 
-        assert!(db.get("ahoj") == Some(Bytes::from("helemese".to_string())));
+        assert!(db.get("baz") == Some(Bytes::from("jazz".to_string())));
     }
 }
