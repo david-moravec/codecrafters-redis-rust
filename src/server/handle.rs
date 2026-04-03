@@ -177,7 +177,7 @@ pub(super) struct Handle {
     pub(crate) db: Db,
     connection: Connection,
     server_info: ServerInfo,
-    query_tx: mpsc::Sender<ServerInquiry>,
+    server_inquiry_tx: mpsc::Sender<ServerInquiry>,
 }
 
 impl Handle {
@@ -185,13 +185,13 @@ impl Handle {
         db: Db,
         connection: Connection,
         server_info: ServerInfo,
-        query_tx: mpsc::Sender<ServerInquiry>,
+        server_inquiry_tx: mpsc::Sender<ServerInquiry>,
     ) -> Self {
         Handle {
             db,
             connection,
             server_info,
-            query_tx,
+            server_inquiry_tx,
         }
     }
 
@@ -231,7 +231,7 @@ impl Handle {
                         .apply(
                             &self.db,
                             &mut self.connection,
-                            &mut self.query_tx,
+                            &mut self.server_inquiry_tx,
                             self.server_info.clone(),
                         )
                         .await?;

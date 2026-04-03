@@ -67,13 +67,13 @@ impl Server {
         Ok(())
     }
 
-    async fn respond_to_queries(
+    async fn respond_to_inquiries(
         &self,
         info: ServerInfo,
-        query_rx: mpsc::Receiver<ServerInquiry>,
+        server_inquiry_tx: mpsc::Receiver<ServerInquiry>,
         server_cmd_tx: broadcast::Sender<info::HandleInquiry>,
     ) -> Result<()> {
-        let handler = ServerInquiryHandle::new(info, query_rx, server_cmd_tx);
+        let handler = ServerInquiryHandle::new(info, server_inquiry_tx, server_cmd_tx);
 
         tokio::spawn(async move {
             if let Err(err) = handler.run().await {
@@ -99,7 +99,7 @@ impl Server {
 
         let info = self.info.clone();
 
-        self.respond_to_queries(info, query_rx, server_cmd_tx.clone())
+        self.respond_to_inquiries(info, query_rx, server_cmd_tx.clone())
             .await?;
 
         loop {
