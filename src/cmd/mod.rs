@@ -30,7 +30,10 @@ use self::server_inquiry::ServerInquiry;
 use crate::db::Db;
 use crate::frame::Frame;
 use crate::parser::Parse;
+use crate::server::subscription_channels::SubscriptionMessage;
 use crate::{connection::Connection, server::info::ServerInfo};
+use tokio_stream::StreamMap;
+use tokio_stream::wrappers::BroadcastStream;
 
 use anyhow::{Result, anyhow};
 use blpop::BLPop;
@@ -69,6 +72,18 @@ pub enum ReplCommand {
 #[derive(Debug)]
 pub enum SubscriptionCommand {
     Subscribe(Subscribe),
+}
+
+impl SubscriptionCommand {
+    pub async fn apply(
+        self,
+        query_tx: &mut mpsc::Sender<ServerInquiry>,
+        streams: &mut StreamMap<String, BroadcastStream<SubscriptionMessage>>,
+    ) -> Result<Frame> {
+        match self {
+            Self::Subscribe(cmd) => cmd.apply(query_tx, streams).await,
+        }
+    }
 }
 
 #[derive(Debug)]

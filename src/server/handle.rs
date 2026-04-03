@@ -229,7 +229,8 @@ impl Handle {
                     let command = Command::from_frame(frame)?;
 
                     if let Command::Subscription(subscription_command) = command {
-
+                        let frame = subscription_command.apply(&mut self.server_inquiry_tx, &mut streams).await?;
+                        self.connection.write_frame(&frame).await?;
                     } else {
                         eprintln!("Not supported command in subscription mode")
                     }
