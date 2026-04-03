@@ -1,18 +1,18 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use std::net::SocketAddr;
 use thiserror::Error;
 use tokio::sync::mpsc;
-use tokio_stream::{StreamExt, StreamMap, wrappers::BroadcastStream};
+use tokio_stream::{StreamExt, StreamMap};
 
 use crate::cmd::psync::Psync;
-use crate::cmd::server_inquiry::{self, SubscriptionMessage};
 use crate::cmd::subscribe::Subscribe;
 use crate::db::Db;
 use bytes::Bytes;
 use tokio::sync::broadcast;
 
-use super::ServerInquiry;
 use super::info::{HandleInquiry, ServerInfo};
+use super::subscription_channels::SubscriptionChannels;
+use super::{ServerInquiry, subscription_channels};
 use crate::cmd::{Command, ReplCommand, SubscriptionCommand};
 use crate::connection::Connection;
 use crate::frame::Frame;
@@ -303,12 +303,17 @@ impl ServerInquiryHandle {
     }
 
     pub(crate) async fn run(mut self) -> Result<()> {
+        let mut subscription_channels = SubscriptionChannels::new();
         loop {
             let query = self.query_rx.recv().await;
             if let Some(query) = query {
                 eprintln!("{:?}", query);
                 query
-                    .apply(&mut self.handle_inquiry_tx, self.info.clone())
+                    .apply(
+                        &mut self.handle_inquiry_tx,
+                        self.info.clone(),
+                        &mut subscription_channels,
+                    )
                     .await?;
             } else {
                 eprintln!("server inquiry channel closed");

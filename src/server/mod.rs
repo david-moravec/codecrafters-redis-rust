@@ -1,8 +1,11 @@
-mod handle;
 pub mod info;
+pub mod subscription_channels;
+
+mod handle;
 mod replicationbroadcast;
 
 use anyhow::Result;
+use subscription_channels::SubscriptionChannels;
 use tokio::sync::mpsc;
 
 use self::handle::{Handle, MasterReplicationHandle, SlaveReplicationHandle};

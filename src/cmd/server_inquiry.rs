@@ -4,10 +4,11 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::{
     frame::Frame,
-    server::info::{HandleInquiry, ServerInfo},
+    server::{
+        info::{HandleInquiry, ServerInfo},
+        subscription_channels::{SubscriptionChannels, SubscriptionMessage},
+    },
 };
-
-pub type SubscriptionMessage = String;
 
 #[derive(Debug)]
 pub struct WaitInquiry {
@@ -79,8 +80,12 @@ pub struct SubscribeInquiry {
 }
 
 impl SubscribeInquiry {
-    fn apply(self) -> Result<()> {
-        todo!("Implement returning reciever to stream broadcas for given channel name")
+    fn apply(self, subscription_channels: &mut SubscriptionChannels) -> Result<()> {
+        let rx = subscription_channels.new_subscriber(self.channel_name.clone());
+        if let Err(err) = self.response.send(rx) {
+            eprintln!("subscription to {:} failed; {:?}", self.channel_name, err);
+        };
+        Ok(())
     }
 }
 
@@ -95,10 +100,11 @@ impl ServerInquiry {
         self,
         handle_inquiry_tx: &mut broadcast::Sender<HandleInquiry>,
         server_info: ServerInfo,
+        subscription_channels: &mut SubscriptionChannels,
     ) -> Result<()> {
         match self {
             Self::Wait(cmd) => cmd.apply(handle_inquiry_tx, server_info).await,
-            Self::Subscribe(cmd) => cmd.apply(),
+            Self::Subscribe(cmd) => cmd.apply(subscription_channels),
         }
     }
 }

@@ -1,13 +1,13 @@
 use anyhow::Result;
-use bytes::Bytes;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::StreamMap;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
-    cmd::server_inquiry::{ServerInquiry, SubscribeInquiry, SubscriptionMessage},
+    cmd::server_inquiry::{ServerInquiry, SubscribeInquiry},
     frame::Frame,
     parser::Parse,
+    server::subscription_channels::SubscriptionMessage,
 };
 
 #[derive(Debug)]
