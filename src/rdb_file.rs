@@ -62,7 +62,10 @@ impl RdbFile {
                 self.parse_database_section(&mut buf)?;
             }
             Err(err) => {
-                eprintln!("reading RDB file at {:?} failed: {:}", file_path, err);
+                eprintln!(
+                    "reading RDB file at {:?} failed: {:}, proceeding with empty DB",
+                    file_path, err
+                );
             }
         }
 
