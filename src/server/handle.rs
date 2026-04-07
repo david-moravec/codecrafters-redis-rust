@@ -232,8 +232,8 @@ impl Handle {
                         let frame = subscription_command.apply(&mut self.server_inquiry_tx, &mut streams).await?;
                         self.connection.write_frame(&frame).await?;
                     } else {
-                        let frame = {if let Command::Db(DbCommand::Ping(cmd)) = command {
-                            cmd.apply(&self.db)?
+                        let frame = {if let Command::Db(DbCommand::Ping(_)) = command {
+                            Frame::Array(Some(vec![Frame::BulkString(Bytes::from("pong")), Frame::BulkString(Bytes::new())]))
                         } else {
                             Frame::Error(format!("ERR Can't execute '{:}' in subscribed mode", command.name()))
                         }};
