@@ -251,4 +251,35 @@ impl Command {
             }
         }
     }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Command::Db(DbCommand::Ping(_)) => "ping",
+            Command::Db(DbCommand::Get(_)) => "get",
+            Command::Db(DbCommand::Echo(_)) => "echo",
+            Command::Db(DbCommand::Set(_)) => "set",
+            Command::Db(DbCommand::Incr(_)) => "incr",
+            Command::Db(DbCommand::RPush(_)) => "rpush",
+            Command::Db(DbCommand::LRange(_)) => "lrange",
+            Command::Db(DbCommand::LPush(_)) => "lpush",
+            Command::Db(DbCommand::LLen(_)) => "llen",
+            Command::Db(DbCommand::LPop(_)) => "lpop",
+            Command::Db(DbCommand::BLPop(_)) => "blpop",
+            Command::Db(DbCommand::Type(_)) => "type",
+            Command::Db(DbCommand::XAdd(_)) => "xadd",
+            Command::Db(DbCommand::XRange(_)) => "xrange",
+            Command::Db(DbCommand::XRead(_)) => "xread",
+            Command::Db(DbCommand::Keys(_)) => "keys",
+            Command::Transaction(TransactionCommand::Multi(_)) => "multi",
+            Command::Transaction(TransactionCommand::Exec(_)) => "exec",
+            Command::Transaction(TransactionCommand::Discard(_)) => "discard",
+            Command::ServerInfo(ServerInfoCommand::Info(_)) => "info",
+            Command::ServerInfo(ServerInfoCommand::Config(_)) => "config",
+            Command::Repl(ReplCommand::Replconf(_)) => "replconf",
+            Command::Repl(ReplCommand::Psync(_)) => "psync",
+            Command::Server(ServerCommand::Wait(_)) => "wait",
+            Command::Subscription(SubscriptionCommand::Subscribe(_)) => "subscribe",
+            _ => unimplemented!("name not implemented for {:?}", self),
+        }
+    }
 }

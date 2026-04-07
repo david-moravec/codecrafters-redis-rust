@@ -13,7 +13,7 @@ use tokio::sync::broadcast;
 use super::info::{HandleInquiry, ServerInfo};
 use super::subscription_channels::SubscriptionChannels;
 use super::{ServerInquiry, subscription_channels};
-use crate::cmd::{Command, ReplCommand, SubscriptionCommand};
+use crate::cmd::{Command, DbCommand, ReplCommand, SubscriptionCommand};
 use crate::connection::Connection;
 use crate::frame::Frame;
 
@@ -232,7 +232,12 @@ impl Handle {
                         let frame = subscription_command.apply(&mut self.server_inquiry_tx, &mut streams).await?;
                         self.connection.write_frame(&frame).await?;
                     } else {
-                        eprintln!("Not supported command in subscription mode")
+                        let frame = {if let Command::Db(DbCommand::Ping(cmd)) = command {
+                            cmd.apply(&self.db)?
+                        } else {
+                            Frame::Error(format!("ERR Can't execute '{:}' in subscribed mode", command.name()))
+                        }};
+                        self.connection.write_frame(&frame).await?;
                     }
 
                 }
