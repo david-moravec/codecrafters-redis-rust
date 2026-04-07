@@ -272,6 +272,10 @@ impl Handle {
                     SubscriptionCommand::Subscribe(cmd) => {
                         self = self.start_subscription(cmd).await?;
                     }
+                    SubscriptionCommand::Publish(cmd) => {
+                        let frame = cmd.apply(&mut self.server_inquiry_tx).await?;
+                        self.connection.write_frame(&frame).await?;
+                    }
                 },
                 cmd => {
                     let frame = cmd

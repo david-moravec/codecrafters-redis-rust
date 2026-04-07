@@ -17,6 +17,7 @@ mod lpush;
 mod lrange;
 mod multi;
 mod ping;
+mod publish;
 mod replconf;
 mod rpush;
 mod set;
@@ -52,6 +53,7 @@ use lrange::LRange;
 use multi::Multi;
 use ping::Ping;
 use psync::Psync;
+use publish::Publish;
 use replconf::Replconf;
 use rpush::RPush;
 use set::Set;
@@ -72,6 +74,7 @@ pub enum ReplCommand {
 #[derive(Debug)]
 pub enum SubscriptionCommand {
     Subscribe(Subscribe),
+    Publish(Publish),
 }
 
 impl SubscriptionCommand {
@@ -82,6 +85,7 @@ impl SubscriptionCommand {
     ) -> Result<Frame> {
         match self {
             Self::Subscribe(cmd) => cmd.apply(query_tx, streams).await,
+            Self::Publish(cmd) => cmd.apply(query_tx).await,
         }
     }
 }
@@ -220,6 +224,9 @@ impl Command {
             "subscribe" => Command::Subscription(SubscriptionCommand::Subscribe(Subscribe::parse(
                 &mut parse,
             )?)),
+            "publish" => {
+                Command::Subscription(SubscriptionCommand::Publish(Publish::parse(&mut parse)?))
+            }
             _ => return Err(anyhow!("protocol error; unknown command {:}", command_name)),
         };
 
@@ -279,6 +286,7 @@ impl Command {
             Command::Repl(ReplCommand::Psync(_)) => "psync",
             Command::Server(ServerCommand::Wait(_)) => "wait",
             Command::Subscription(SubscriptionCommand::Subscribe(_)) => "subscribe",
+            Command::Subscription(SubscriptionCommand::Publish(_)) => "publish",
             _ => unimplemented!("name not implemented for {:?}", self),
         }
     }

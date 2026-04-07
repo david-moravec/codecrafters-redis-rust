@@ -90,9 +90,27 @@ impl SubscribeInquiry {
 }
 
 #[derive(Debug)]
+pub struct PublishInquiry {
+    pub channel_name: String,
+    pub message: SubscriptionMessage,
+    pub response: oneshot::Sender<u64>,
+}
+
+impl PublishInquiry {
+    fn apply(self, subscription_channels: &SubscriptionChannels) -> Result<()> {
+        let count = subscription_channels.send_message(&self.channel_name, self.message)?;
+        if let Err(err) = self.response.send(count) {
+            eprintln!("subscription to {:} failed; {:?}", self.channel_name, err);
+        };
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub(crate) enum ServerInquiry {
     Wait(WaitInquiry),
     Subscribe(SubscribeInquiry),
+    Publish(PublishInquiry),
 }
 
 impl ServerInquiry {
@@ -105,6 +123,7 @@ impl ServerInquiry {
         match self {
             Self::Wait(cmd) => cmd.apply(handle_inquiry_tx, server_info).await,
             Self::Subscribe(cmd) => cmd.apply(subscription_channels),
+            Self::Publish(cmd) => cmd.apply(subscription_channels),
         }
     }
 }

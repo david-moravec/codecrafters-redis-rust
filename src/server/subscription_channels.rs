@@ -1,5 +1,5 @@
+use anyhow::Result;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 pub type SubscriptionMessage = String;
@@ -23,5 +23,13 @@ impl SubscriptionChannels {
             .entry(channel_name)
             .or_insert(broadcast::channel(16).0)
             .subscribe()
+    }
+
+    pub fn send_message(&self, channel_name: &str, message: SubscriptionMessage) -> Result<u64> {
+        if let Some(tx) = self.data.get(channel_name) {
+            Ok(tx.send(message)? as u64)
+        } else {
+            Ok(0)
+        }
     }
 }
