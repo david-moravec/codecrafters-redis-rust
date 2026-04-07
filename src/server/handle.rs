@@ -217,7 +217,8 @@ impl Handle {
         loop {
             tokio::select! {
                 Some((channel_name, Ok(msg))) = streams.next() => {
-
+                    let frame = Frame::bulk_strings_array_from_str(vec!["message", &channel_name, &msg]);
+                    self.connection.write_frame(&frame).await?;
                 }
                 result_maybe_frame = self.connection.read_frame() => {
                     let frame = match result_maybe_frame {
