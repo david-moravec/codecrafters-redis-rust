@@ -232,6 +232,10 @@ impl Handle {
                     if let Command::Subscription(subscription_command) = command {
                         let frame = subscription_command.apply(&mut self.server_inquiry_tx, &mut streams).await?;
                         self.connection.write_frame(&frame).await?;
+
+                        if streams.len() == 0 {
+                            return Ok(self);
+                        }
                     } else {
                         let frame = {if let Command::Db(DbCommand::Ping(_)) = command {
                             Frame::Array(Some(vec![Frame::BulkString(Bytes::from("pong")), Frame::BulkString(Bytes::new())]))
@@ -245,7 +249,6 @@ impl Handle {
 
             }
         }
-        // Ok(self)
     }
 
     pub(crate) async fn run(mut self) -> HandleResult<()> {
@@ -277,6 +280,7 @@ impl Handle {
                         let frame = cmd.apply(&mut self.server_inquiry_tx).await?;
                         self.connection.write_frame(&frame).await?;
                     }
+                    _ => todo!("Implement unsubscribing without being subscribed"),
                 },
                 cmd => {
                     let frame = cmd

@@ -22,6 +22,7 @@ mod replconf;
 mod rpush;
 mod set;
 mod type_cmd;
+mod unsubscribe;
 mod wait;
 mod xadd;
 mod xrange;
@@ -60,6 +61,7 @@ use set::Set;
 use subscribe::Subscribe;
 use tokio::sync::mpsc;
 use type_cmd::Type;
+use unsubscribe::Unsubscribe;
 use wait::Wait;
 use xadd::XAdd;
 use xrange::XRange;
@@ -74,6 +76,7 @@ pub enum ReplCommand {
 #[derive(Debug)]
 pub enum SubscriptionCommand {
     Subscribe(Subscribe),
+    Unsubscribe(Unsubscribe),
     Publish(Publish),
 }
 
@@ -85,6 +88,7 @@ impl SubscriptionCommand {
     ) -> Result<Frame> {
         match self {
             Self::Subscribe(cmd) => cmd.apply(query_tx, streams).await,
+            Self::Unsubscribe(cmd) => cmd.apply(streams),
             Self::Publish(cmd) => cmd.apply(query_tx).await,
         }
     }
@@ -224,6 +228,9 @@ impl Command {
             "subscribe" => Command::Subscription(SubscriptionCommand::Subscribe(Subscribe::parse(
                 &mut parse,
             )?)),
+            "unsubscribe" => Command::Subscription(SubscriptionCommand::Unsubscribe(
+                Unsubscribe::parse(&mut parse)?,
+            )),
             "publish" => {
                 Command::Subscription(SubscriptionCommand::Publish(Publish::parse(&mut parse)?))
             }
