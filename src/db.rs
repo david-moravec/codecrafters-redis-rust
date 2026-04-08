@@ -175,6 +175,14 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("set"))
         }
     }
+
+    fn zscore(&self, member: &Bytes) -> DbEntryResult<Option<f64>> {
+        if let Self::ZSet(s) = self {
+            Ok(s.zscore(member))
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -668,6 +676,15 @@ impl Db {
             .or_insert_with(|| DbEntry::ZSet(ZSet::new()));
 
         set_entry.zcard().unwrap()
+    }
+
+    pub fn zscore(&self, key: String, member: Bytes) -> Option<f64> {
+        let mut state = self.shared.state.lock().unwrap();
+        state
+            .db
+            .get(&key)
+            .map(|e| e.zscore(&member).unwrap())
+            .flatten()
     }
 
     pub fn to_rdb_file(&self) -> Bytes {

@@ -31,6 +31,7 @@ mod zadd;
 mod zcard;
 mod zrange;
 mod zrank;
+mod zscore;
 
 use self::server_inquiry::ServerInquiry;
 use crate::db::Db;
@@ -74,6 +75,7 @@ use zadd::ZAdd;
 use zcard::ZCard;
 use zrange::ZRange;
 use zrank::ZRank;
+use zscore::ZScore;
 
 #[derive(Debug)]
 pub enum ReplCommand {
@@ -166,6 +168,7 @@ pub enum DbCommand {
     XRead(XRead),
     ZAdd(ZAdd),
     ZRank(ZRank),
+    ZScore(ZScore),
     ZRange(ZRange),
     ZCard(ZCard),
     Keys(Keys),
@@ -193,6 +196,7 @@ impl DbCommand {
             Self::ZAdd(cmd) => cmd.apply(db),
             Self::ZCard(cmd) => cmd.apply(db),
             Self::ZRank(cmd) => cmd.apply(db),
+            Self::ZScore(cmd) => cmd.apply(db),
             Self::ZRange(cmd) => cmd.apply(db),
         }
     }
@@ -231,6 +235,7 @@ impl Command {
             "zadd" => Command::Db(DbCommand::ZAdd(ZAdd::parse(&mut parse)?)),
             "zcard" => Command::Db(DbCommand::ZCard(ZCard::parse(&mut parse)?)),
             "zrank" => Command::Db(DbCommand::ZRank(ZRank::parse(&mut parse)?)),
+            "zscore" => Command::Db(DbCommand::ZScore(ZScore::parse(&mut parse)?)),
             "zrange" => Command::Db(DbCommand::ZRange(ZRange::parse(&mut parse)?)),
             "xrange" => Command::Db(DbCommand::XRange(XRange::parse(&mut parse)?)),
             "xread" => Command::Db(DbCommand::XRead(XRead::parse(&mut parse)?)),

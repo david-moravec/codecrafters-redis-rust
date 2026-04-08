@@ -110,6 +110,9 @@ impl ZSet {
     pub fn zcard(&self) -> usize {
         self.btree.len()
     }
+    pub fn zscore(&self, member: &Bytes) -> Option<f64> {
+        self.hashmap.get(member).map(|f| *f)
+    }
 }
 
 #[cfg(test)]
