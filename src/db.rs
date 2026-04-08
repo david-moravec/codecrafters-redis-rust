@@ -75,7 +75,7 @@ impl DbEntry {
         }
     }
 
-    fn get(&self) -> Option<Bytes> {
+    pub(crate) fn get(&self) -> Option<Bytes> {
         if let Self::Single(b) = self {
             Some(b.clone())
         } else {
@@ -117,12 +117,43 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("list"))
         }
     }
+
+    fn xadd(
+        &mut self,
+        id: Bytes,
+        values: StreamEntry,
+    ) -> DbEntryResult<Result<StreamEntryID, StreamError>> {
+        if let Self::Stream(s) = self {
+            Ok(s.xadd(id, values))
+        } else {
+            Err(DbEntryError::WrongEntryType("stream"))
+        }
+    }
+
+    fn xread(&self, id: &StreamEntryID) -> DbEntryResult<Result<XRange, StreamError>> {
+        if let Self::Stream(s) = self {
+            Ok(s.xread(id))
+        } else {
+            Err(DbEntryError::WrongEntryType("stream"))
+        }
+    }
+
+    fn xrange(
+        &self,
+        start_id: &Bytes,
+        end_id: &Bytes,
+    ) -> DbEntryResult<Result<XRange, StreamError>> {
+        if let Self::Stream(s) = self {
+            Ok(s.xrange(start_id, end_id))
+        } else {
+            Err(DbEntryError::WrongEntryType("stream"))
+        }
+    }
 }
 
 #[derive(Debug)]
 struct State {
     db: HashMap<String, DbEntry>,
-    streams: HashMap<String, Stream>,
     expiry: HashMap<String, Expiry>,
     blpop_waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
     blpop_waiters_ready: Vec<String>,
@@ -134,7 +165,6 @@ impl State {
     fn new() -> Self {
         Self {
             db: HashMap::new(),
-            streams: HashMap::new(),
             expiry: HashMap::new(),
             blpop_waiters: HashMap::new(),
             blpop_waiters_ready: vec![],
@@ -154,7 +184,6 @@ impl State {
 
         Self {
             db: rdb_file.db,
-            streams: HashMap::new(),
             expiry,
             blpop_waiters: HashMap::new(),
             blpop_waiters_ready: vec![],
@@ -228,7 +257,13 @@ impl Shared {
                     None => break,
                 };
 
-                let xrange = state.streams.get(&key).unwrap().xread(&waiter.id).unwrap();
+                let xrange = state
+                    .db
+                    .get(&key)
+                    .unwrap()
+                    .xread(&waiter.id)
+                    .unwrap()
+                    .unwrap();
 
                 if xrange.entries_len() == 0 {
                     continue;
@@ -484,13 +519,15 @@ impl Db {
     pub fn value_type(&self, key: &str) -> String {
         let state = self.shared.state.lock().unwrap();
 
-        if state.db.contains_key(key) {
-            "string".to_string()
-        } else if state.streams.contains_key(key) {
-            "stream".to_string()
-        } else {
-            "none".to_string()
+        match state.db.get(key) {
+            Some(entry) => match entry {
+                DbEntry::Single(_) => "string",
+                DbEntry::List(_) => "list",
+                DbEntry::Stream(_) => "stream",
+            },
+            None => "none",
         }
+        .to_string()
     }
 
     fn notify_xread_waiters(&self, key: &str) {
@@ -510,8 +547,11 @@ impl Db {
     ) -> Result<StreamEntryID, StreamError> {
         let id = {
             let mut state = self.shared.state.lock().unwrap();
-            let stream = state.streams.entry(key.clone()).or_insert(Stream::new());
-            stream.insert(id, values)
+            let stream = state
+                .db
+                .entry(key.clone())
+                .or_insert(DbEntry::Stream(Stream::new()));
+            stream.xadd(id, values).unwrap()
         };
         self.notify_xread_waiters(&key);
         id
@@ -519,9 +559,12 @@ impl Db {
 
     pub fn xrange(&self, key: String, start: &Bytes, end: &Bytes) -> Result<XRange, StreamError> {
         let mut state = self.shared.state.lock().unwrap();
-        let stream = state.streams.entry(key).or_insert(Stream::new());
+        let stream = state
+            .db
+            .entry(key)
+            .or_insert(DbEntry::Stream(Stream::new()));
 
-        stream.xrange(start, end)
+        stream.xrange(start, end).unwrap()
     }
 
     pub fn xread(
@@ -536,24 +579,25 @@ impl Db {
         let mut rx_opt = None;
 
         for (key, id) in keys.into_iter().zip(ids.into_iter()) {
-            if state.streams.contains_key(&key) {
-                let stream = state.streams.get(&key).unwrap();
-                let entry_id = stream.generate_id(&id)?;
-                let xrange = stream.xread(&entry_id)?;
+            if state.db.contains_key(&key) {
+                if let DbEntry::Stream(stream) = state.db.get(&key).unwrap() {
+                    let entry_id = stream.generate_id(&id)?;
+                    let xrange = stream.xread(&entry_id)?;
 
-                if xrange.entries_len() == 0 && timeout.is_some() {
-                    let (tx, rx) = oneshot::channel();
-                    state
-                        .xread_waiters
-                        .entry(key.clone())
-                        .or_insert(vec![])
-                        .push(XReadWaiter { id: entry_id, tx });
-                    rx_opt = Some(rx);
+                    if xrange.entries_len() == 0 && timeout.is_some() {
+                        let (tx, rx) = oneshot::channel();
+                        state
+                            .xread_waiters
+                            .entry(key.clone())
+                            .or_insert(vec![])
+                            .push(XReadWaiter { id: entry_id, tx });
+                        rx_opt = Some(rx);
 
-                    return Ok((None, rx_opt));
-                }
+                        return Ok((None, rx_opt));
+                    }
 
-                xread_entries.push((key, xrange));
+                    xread_entries.push((key, xrange));
+                };
             }
         }
 

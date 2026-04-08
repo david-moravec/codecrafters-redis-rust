@@ -120,11 +120,11 @@ impl RdbFile {
         }
     }
 
-    fn parse_db_entry(&self, buf: &mut Cursor<&[u8]>) -> RdbFileResult<(String, Vec<Bytes>)> {
+    fn parse_db_entry(&self, buf: &mut Cursor<&[u8]>) -> RdbFileResult<(String, Bytes)> {
         match peek_u8(buf)? {
             0x00 => {
                 get_u8(buf)?;
-                Ok((get_string(buf)?, vec![Bytes::from(get_string(buf)?)]))
+                Ok((get_string(buf)?, Bytes::from(get_string(buf)?)))
             }
             _ => todo!("not yet supported type {:}", peek_u8(buf)?),
         }
@@ -317,6 +317,6 @@ mod tests {
         rdb_file.parse(Path::new("dump.rdb")).unwrap();
 
         eprintln!("{:?}", rdb_file);
-        assert!(rdb_file.db.get("foo").unwrap()[0] == Bytes::from("bar".to_string()));
+        assert!(rdb_file.db.get("foo").unwrap().get().unwrap() == Bytes::from("bar".to_string()));
     }
 }

@@ -222,7 +222,7 @@ impl Stream {
         Ok(entry_id)
     }
 
-    pub fn insert(&mut self, id: Bytes, values: StreamEntry) -> Result<StreamEntryID, StreamError> {
+    pub fn xadd(&mut self, id: Bytes, values: StreamEntry) -> Result<StreamEntryID, StreamError> {
         let id = self.generate_id(&id)?;
         self.validate_new_entry_id(id)?;
 
