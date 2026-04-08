@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::collections::{BTreeSet, HashMap};
 
 use bytes::Bytes;
@@ -61,6 +62,49 @@ impl ZSet {
 
             Some(count)
         }
+    }
+
+    pub fn zrange(&self, start: i64, stop: i64) -> Vec<Bytes> {
+        let list_len = self.btree.len();
+
+        let true_stop = {
+            if stop < 0 {
+                max(list_len as i64 - stop.abs(), 0)
+            } else if stop >= list_len as i64 {
+                (list_len - 1) as i64
+            } else {
+                stop
+            }
+        };
+
+        let true_start = {
+            if start < 0 {
+                max(list_len as i64 - start.abs(), 0)
+            } else if start >= list_len as i64 {
+                return vec![];
+            } else {
+                start
+            }
+        };
+
+        if true_start > true_stop {
+            return vec![];
+        }
+
+        let mut result = vec![];
+
+        for (i, (_, member)) in self.btree.iter().enumerate() {
+            if i < true_start as usize {
+                continue;
+            }
+            if i > true_stop as usize {
+                break;
+            }
+
+            result.push(member.clone());
+        }
+
+        result
     }
 }
 

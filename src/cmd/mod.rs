@@ -28,6 +28,7 @@ mod xadd;
 mod xrange;
 mod xread;
 mod zadd;
+mod zrange;
 mod zrank;
 
 use self::server_inquiry::ServerInquiry;
@@ -69,6 +70,7 @@ use xadd::XAdd;
 use xrange::XRange;
 use xread::XRead;
 use zadd::ZAdd;
+use zrange::ZRange;
 use zrank::ZRank;
 
 #[derive(Debug)]
@@ -162,6 +164,7 @@ pub enum DbCommand {
     XRead(XRead),
     ZAdd(ZAdd),
     ZRank(ZRank),
+    ZRange(ZRange),
     Keys(Keys),
 }
 
@@ -186,6 +189,7 @@ impl DbCommand {
             Self::XRead(cmd) => cmd.apply(db).await,
             Self::ZAdd(cmd) => cmd.apply(db),
             Self::ZRank(cmd) => cmd.apply(db),
+            Self::ZRange(cmd) => cmd.apply(db),
         }
     }
 }
@@ -222,6 +226,7 @@ impl Command {
             "xadd" => Command::Db(DbCommand::XAdd(XAdd::parse(&mut parse)?)),
             "zadd" => Command::Db(DbCommand::ZAdd(ZAdd::parse(&mut parse)?)),
             "zrank" => Command::Db(DbCommand::ZRank(ZRank::parse(&mut parse)?)),
+            "zrange" => Command::Db(DbCommand::ZRange(ZRange::parse(&mut parse)?)),
             "xrange" => Command::Db(DbCommand::XRange(XRange::parse(&mut parse)?)),
             "xread" => Command::Db(DbCommand::XRead(XRead::parse(&mut parse)?)),
             "keys" => Command::Db(DbCommand::Keys(Keys::parse(&mut parse)?)),
