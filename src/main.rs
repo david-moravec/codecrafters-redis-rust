@@ -6,6 +6,7 @@ mod parser;
 mod rdb_file;
 mod server;
 mod stream;
+mod zset;
 
 use crate::server::Server;
 use clap::Parser;

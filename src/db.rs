@@ -12,6 +12,7 @@ use tokio::sync::oneshot;
 
 use crate::rdb_file::RdbFile;
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError, XRange, XRead};
+use crate::zset::ZSet;
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -64,6 +65,7 @@ pub enum DbEntry {
     Single(Bytes),
     List(Vec<Bytes>),
     Stream(Stream),
+    ZSet(ZSet),
 }
 
 impl DbEntry {
@@ -147,6 +149,14 @@ impl DbEntry {
             Ok(s.xrange(start_id, end_id))
         } else {
             Err(DbEntryError::WrongEntryType("stream"))
+        }
+    }
+
+    fn zadd(&mut self, score: f64, member: Bytes) -> DbEntryResult<usize> {
+        if let Self::ZSet(s) = self {
+            Ok(s.zadd(score, member))
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
         }
     }
 }
@@ -524,6 +534,7 @@ impl Db {
                 DbEntry::Single(_) => "string",
                 DbEntry::List(_) => "list",
                 DbEntry::Stream(_) => "stream",
+                DbEntry::ZSet(_) => "zset",
             },
             None => "none",
         }
@@ -602,6 +613,17 @@ impl Db {
         }
 
         Ok((Some(XRead::new(xread_entries)), rx_opt))
+    }
+
+    pub fn zadd(&self, key: String, score: f64, member: Bytes) -> usize {
+        let mut state = self.shared.state.lock().unwrap();
+
+        let set = state
+            .db
+            .entry(key)
+            .or_insert_with(|| DbEntry::ZSet(ZSet::new()));
+
+        set.zadd(score, member).unwrap()
     }
 
     pub fn to_rdb_file(&self) -> Bytes {

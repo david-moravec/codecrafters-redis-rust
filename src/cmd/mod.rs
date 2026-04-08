@@ -27,6 +27,7 @@ mod wait;
 mod xadd;
 mod xrange;
 mod xread;
+mod zadd;
 
 use self::server_inquiry::ServerInquiry;
 use crate::db::Db;
@@ -66,6 +67,7 @@ use wait::Wait;
 use xadd::XAdd;
 use xrange::XRange;
 use xread::XRead;
+use zadd::ZAdd;
 
 #[derive(Debug)]
 pub enum ReplCommand {
@@ -156,6 +158,7 @@ pub enum DbCommand {
     XAdd(XAdd),
     XRange(XRange),
     XRead(XRead),
+    ZAdd(ZAdd),
     Keys(Keys),
 }
 
@@ -178,6 +181,7 @@ impl DbCommand {
             Self::XRange(cmd) => cmd.apply(db),
             Self::Keys(cmd) => cmd.apply(db),
             Self::XRead(cmd) => cmd.apply(db).await,
+            Self::ZAdd(cmd) => cmd.apply(db),
         }
     }
 }
@@ -212,6 +216,7 @@ impl Command {
             "blpop" => Command::Db(DbCommand::BLPop(BLPop::parse(&mut parse)?)),
             "type" => Command::Db(DbCommand::Type(Type::parse(&mut parse)?)),
             "xadd" => Command::Db(DbCommand::XAdd(XAdd::parse(&mut parse)?)),
+            "zadd" => Command::Db(DbCommand::ZAdd(ZAdd::parse(&mut parse)?)),
             "xrange" => Command::Db(DbCommand::XRange(XRange::parse(&mut parse)?)),
             "xread" => Command::Db(DbCommand::XRead(XRead::parse(&mut parse)?)),
             "keys" => Command::Db(DbCommand::Keys(Keys::parse(&mut parse)?)),
