@@ -159,6 +159,14 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("set"))
         }
     }
+
+    fn zrank(&self, member: Bytes) -> DbEntryResult<Option<usize>> {
+        if let Self::ZSet(s) = self {
+            Ok(s.zrank(member))
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -624,6 +632,16 @@ impl Db {
             .or_insert_with(|| DbEntry::ZSet(ZSet::new()));
 
         set.zadd(score, member).unwrap()
+    }
+
+    pub fn zrank(&self, key: String, member: Bytes) -> Option<usize> {
+        let state = self.shared.state.lock().unwrap();
+
+        state
+            .db
+            .get(&key)
+            .map(|e| e.zrank(member).unwrap())
+            .flatten()
     }
 
     pub fn to_rdb_file(&self) -> Bytes {
