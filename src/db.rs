@@ -167,6 +167,14 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("set"))
         }
     }
+
+    fn zcard(&self) -> DbEntryResult<usize> {
+        if let Self::ZSet(s) = self {
+            Ok(s.zcard())
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -650,6 +658,16 @@ impl Db {
             Some(DbEntry::ZSet(set)) => set.zrange(start, stop),
             Some(_) | None => return vec![],
         }
+    }
+
+    pub fn zcard(&self, key: String) -> usize {
+        let mut state = self.shared.state.lock().unwrap();
+        let set_entry = state
+            .db
+            .entry(key)
+            .or_insert_with(|| DbEntry::ZSet(ZSet::new()));
+
+        set_entry.zcard().unwrap()
     }
 
     pub fn to_rdb_file(&self) -> Bytes {

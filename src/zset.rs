@@ -106,6 +106,10 @@ impl ZSet {
 
         result
     }
+
+    pub fn zcard(&self) -> usize {
+        self.btree.len()
+    }
 }
 
 #[cfg(test)]
