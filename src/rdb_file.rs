@@ -7,7 +7,10 @@ use std::{
 };
 use thiserror::Error;
 
-use crate::frame::{FrameError, get_u8, peek_u8, skip};
+use crate::{
+    db::DbEntry,
+    frame::{FrameError, get_u8, peek_u8, skip},
+};
 
 #[derive(Debug)]
 pub(crate) enum StringEncoding {
@@ -36,7 +39,7 @@ type RdbFileResult<T> = Result<T, RdbFileError>;
 
 #[derive(Debug)]
 pub(crate) struct RdbFile {
-    pub(crate) db: HashMap<String, Vec<Bytes>>,
+    pub(crate) db: HashMap<String, DbEntry>,
     pub(crate) expiry: HashMap<String, Duration>,
 }
 
@@ -153,7 +156,7 @@ impl RdbFile {
             }
 
             let (key, value) = self.parse_db_entry(buf)?;
-            self.db.insert(key.clone(), value);
+            self.db.insert(key.clone(), DbEntry::Single(value));
 
             if let Some(expiry) = expiry {
                 self.expiry.insert(key, expiry);

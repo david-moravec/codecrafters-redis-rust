@@ -51,9 +51,77 @@ pub struct XReadWaiter {
     tx: oneshot::Sender<XRead>,
 }
 
+#[derive(Debug, Error)]
+enum DbEntryError {
+    #[error("ERR entry is not of expected type ({0})")]
+    WrongEntryType(&'static str),
+}
+
+type DbEntryResult<T> = Result<T, DbEntryError>;
+
+#[derive(Debug)]
+pub enum DbEntry {
+    Single(Bytes),
+    List(Vec<Bytes>),
+    Stream(Stream),
+}
+
+impl DbEntry {
+    fn remove(&mut self, index: usize) -> Option<Bytes> {
+        if let Self::List(l) = self {
+            Some(l.remove(index))
+        } else {
+            None
+        }
+    }
+
+    fn get(&self) -> Option<Bytes> {
+        if let Self::Single(b) = self {
+            Some(b.clone())
+        } else {
+            None
+        }
+    }
+
+    fn set(&mut self, value: Bytes) -> DbEntryResult<()> {
+        if let Self::Single(_) = self {
+            *self = DbEntry::Single(value);
+            Ok(())
+        } else {
+            Err(DbEntryError::WrongEntryType("single"))
+        }
+    }
+
+    fn push(&mut self, value: Bytes) -> DbEntryResult<()> {
+        if let Self::List(l) = self {
+            l.push(value);
+            Ok(())
+        } else {
+            Err(DbEntryError::WrongEntryType("list"))
+        }
+    }
+
+    fn insert(&mut self, index: usize, value: Bytes) -> DbEntryResult<()> {
+        if let Self::List(l) = self {
+            l.insert(index, value);
+            Ok(())
+        } else {
+            Err(DbEntryError::WrongEntryType("list"))
+        }
+    }
+
+    fn len(&self) -> DbEntryResult<usize> {
+        if let Self::List(l) = self {
+            Ok(l.len())
+        } else {
+            Err(DbEntryError::WrongEntryType("list"))
+        }
+    }
+}
+
 #[derive(Debug)]
 struct State {
-    db: HashMap<String, Vec<Bytes>>,
+    db: HashMap<String, DbEntry>,
     streams: HashMap<String, Stream>,
     expiry: HashMap<String, Expiry>,
     blpop_waiters: HashMap<String, Vec<oneshot::Sender<Bytes>>>,
@@ -112,16 +180,23 @@ impl Shared {
 
         for key in ready_waiters {
             loop {
-                let data = state.db.get(&key).unwrap()[0].clone();
+                let data = {
+                    if let DbEntry::List(l) = state.db.get(&key).unwrap().clone()
+                        && l.len() > 0
+                    {
+                        l[0].clone()
+                    } else {
+                        continue;
+                    }
+                };
 
                 match state.blpop_waiters.get_mut(&key) {
                     Some(waiters) => {
                         if waiters.len() == 0 {
                             break;
                         }
-                        let waiter = waiters.remove(0);
 
-                        match waiter.send(data) {
+                        match waiters.remove(0).send(data) {
                             Ok(()) => {
                                 // Sending was succesful remove the data
                                 state.db.get_mut(&key).unwrap().remove(0);
@@ -214,7 +289,7 @@ impl Db {
             }
         }
 
-        state.db.get(key).map(|b| b.clone().pop()).flatten()
+        state.db.get(key).map(|b| b.get()).flatten()
     }
 
     pub fn set(&self, key: String, value: Bytes, expire: Option<Duration>) {
@@ -224,7 +299,7 @@ impl Db {
             state.expiry.insert(key.clone(), Expiry::from(expire));
         }
 
-        state.db.insert(key, vec![value]);
+        state.db.insert(key, DbEntry::Single(value));
     }
 
     pub fn keys(&self, pattern: &str) -> Vec<String> {
@@ -245,13 +320,17 @@ impl Db {
     pub fn incr(&self, key: String) -> CommandResult<u64> {
         let mut state = self.shared.state.lock().unwrap();
 
-        let entry = state.db.entry(key).or_insert(vec![Bytes::from("0")]);
+        let entry = state
+            .db
+            .entry(key)
+            .or_insert(DbEntry::Single(Bytes::from("0")));
 
         use atoi::atoi;
 
-        let mut number = atoi::<u64>(entry[0].chunk()).ok_or(CommandError::NotANumber)?;
+        let mut number =
+            atoi::<u64>(entry.get().unwrap().chunk()).ok_or(CommandError::NotANumber)?;
         number += 1;
-        entry[0] = Bytes::from(format!("{:}", number));
+        entry.set(Bytes::from(format!("{:}", number)));
 
         Ok(number)
     }
@@ -269,13 +348,13 @@ impl Db {
         self.notify_blpop_waiters(&key);
         let mut state = self.shared.state.lock().unwrap();
 
-        let list = state.db.entry(key).or_insert_with(|| vec![]);
+        let list = state.db.entry(key).or_insert_with(|| DbEntry::List(vec![]));
 
         for value in values {
             list.push(value);
         }
 
-        list.len()
+        list.len().unwrap()
     }
 
     pub fn lpush(&self, key: String, values: Vec<Bytes>) -> usize {
@@ -283,13 +362,13 @@ impl Db {
 
         let mut state = self.shared.state.lock().unwrap();
 
-        let list = state.db.entry(key).or_insert_with(|| vec![]);
+        let list = state.db.entry(key).or_insert_with(|| DbEntry::List(vec![]));
 
         for value in values {
             list.insert(0, value);
         }
 
-        list.len()
+        list.len().unwrap()
     }
 
     pub fn lpop(&self, key: &str, start: Option<i64>, stop: Option<i64>) -> Option<Vec<Bytes>> {
@@ -301,10 +380,10 @@ impl Db {
         };
 
         if start.is_none() && stop.is_none() {
-            return Some(vec![list.remove(0)]);
+            return Some(vec![list.remove(0).unwrap()]);
         }
 
-        let list_len = list.len();
+        let list_len = list.len().unwrap();
 
         let true_start = {
             if stop.is_none() {
@@ -333,7 +412,7 @@ impl Db {
         let mut result = vec![];
 
         for _ in true_start as usize..=true_stop as usize {
-            result.push(list.remove(0))
+            result.push(list.remove(0).unwrap())
         }
 
         Some(result)
@@ -359,16 +438,16 @@ impl Db {
 
     pub fn llen(&self, key: String) -> usize {
         let mut state = self.shared.state.lock().unwrap();
-        let list = state.db.entry(key).or_insert_with(|| vec![]);
+        let list = state.db.entry(key).or_insert_with(|| DbEntry::List(vec![]));
 
-        list.len()
+        list.len().unwrap()
     }
 
     pub fn lrange(&self, key: &str, start: i64, stop: i64) -> Vec<Bytes> {
         let state = self.shared.state.lock().unwrap();
         let list = match state.db.get(key) {
-            Some(l) => l,
-            None => return vec![],
+            Some(DbEntry::List(l)) => l,
+            Some(_) | None => return vec![],
         };
         let list_len = list.len();
 
