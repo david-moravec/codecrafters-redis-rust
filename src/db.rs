@@ -183,6 +183,13 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("set"))
         }
     }
+    fn zrem(&mut self, member: Bytes) -> DbEntryResult<usize> {
+        if let Self::ZSet(s) = self {
+            Ok(s.zrem(member))
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -679,12 +686,21 @@ impl Db {
     }
 
     pub fn zscore(&self, key: String, member: Bytes) -> Option<f64> {
-        let mut state = self.shared.state.lock().unwrap();
+        let state = self.shared.state.lock().unwrap();
         state
             .db
             .get(&key)
             .map(|e| e.zscore(&member).unwrap())
             .flatten()
+    }
+
+    pub fn zrem(&self, key: String, member: Bytes) -> usize {
+        let mut state = self.shared.state.lock().unwrap();
+
+        match state.db.get_mut(&key) {
+            Some(entry) => entry.zrem(member).unwrap(),
+            None => 0,
+        }
     }
 
     pub fn to_rdb_file(&self) -> Bytes {

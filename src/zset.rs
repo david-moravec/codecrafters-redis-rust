@@ -110,8 +110,19 @@ impl ZSet {
     pub fn zcard(&self) -> usize {
         self.btree.len()
     }
+
     pub fn zscore(&self, member: &Bytes) -> Option<f64> {
         self.hashmap.get(member).map(|f| *f)
+    }
+
+    pub fn zrem(&mut self, member: Bytes) -> usize {
+        if !self.hashmap.contains_key(&member) {
+            0
+        } else {
+            let score = self.hashmap.remove(&member).unwrap();
+            self.btree.remove(&(OrderedFloat(score), member));
+            1
+        }
     }
 }
 
