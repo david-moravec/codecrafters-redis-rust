@@ -2,6 +2,7 @@ mod cmd;
 mod connection;
 mod db;
 mod frame;
+mod geohash;
 mod parser;
 mod rdb_file;
 mod server;

@@ -5,19 +5,21 @@ use thiserror::Error;
 
 use bytes::Bytes;
 
+use crate::geohash::{LAT_MAX, LAT_MIN, LON_MAX, LON_MIN, calculate_geohash};
+
 #[derive(Debug, Error)]
 pub enum ZSetError {
     #[error("ERR invalid longitude,latitude pair {0},{1}")]
     InvalidLongitudeLatitudePair(f64, f64),
 }
 
-fn calculate_location_score(longitude: f64, latitude: f64) -> Result<f64, ZSetError> {
-    if longitude < -180.0 || longitude > 180.0 {
+fn validate_longitude_latitude_pair(longitude: f64, latitude: f64) -> Result<(), ZSetError> {
+    if longitude < LON_MIN || longitude > LON_MAX {
         Err(ZSetError::InvalidLongitudeLatitudePair(longitude, latitude))
-    } else if latitude < -85.05112878 || latitude > 85.05112878 {
+    } else if latitude < LAT_MIN || latitude > LAT_MAX {
         Err(ZSetError::InvalidLongitudeLatitudePair(longitude, latitude))
     } else {
-        Ok(0.0)
+        Ok(())
     }
 }
 
@@ -149,7 +151,8 @@ impl ZSet {
         latitude: f64,
         member: Bytes,
     ) -> Result<usize, ZSetError> {
-        let score = calculate_location_score(longitude, latitude)?;
+        validate_longitude_latitude_pair(longitude, latitude)?;
+        let score = calculate_geohash(longitude, latitude);
         Ok(self.zadd(score, member))
     }
 }
