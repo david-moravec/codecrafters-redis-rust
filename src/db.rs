@@ -12,7 +12,7 @@ use tokio::sync::oneshot;
 
 use crate::rdb_file::RdbFile;
 use crate::stream::{Stream, StreamEntry, StreamEntryID, StreamError, XRange, XRead};
-use crate::zset::ZSet;
+use crate::zset::{ZSet, ZSetError};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -42,6 +42,8 @@ pub enum CommandError {
     NotANumber,
     #[error("{0}")]
     StreamError(#[from] StreamError),
+    #[error(transparent)]
+    EntryError(#[from] DbEntryError),
 }
 
 pub type CommandResult<T> = Result<T, CommandError>;
@@ -53,9 +55,11 @@ pub struct XReadWaiter {
 }
 
 #[derive(Debug, Error)]
-enum DbEntryError {
+pub enum DbEntryError {
     #[error("ERR entry is not of expected type ({0})")]
     WrongEntryType(&'static str),
+    #[error(transparent)]
+    Other(#[from] ZSetError),
 }
 
 type DbEntryResult<T> = Result<T, DbEntryError>;
@@ -183,9 +187,18 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("set"))
         }
     }
+
     fn zrem(&mut self, member: Bytes) -> DbEntryResult<usize> {
         if let Self::ZSet(s) = self {
             Ok(s.zrem(member))
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
+        }
+    }
+
+    fn geoadd(&mut self, longitude: f64, latitude: f64, member: Bytes) -> DbEntryResult<usize> {
+        if let Self::ZSet(s) = self {
+            Ok(s.geoadd(longitude, latitude, member)?)
         } else {
             Err(DbEntryError::WrongEntryType("set"))
         }
@@ -251,7 +264,7 @@ impl Shared {
         for key in ready_waiters {
             loop {
                 let data = {
-                    if let DbEntry::List(l) = state.db.get(&key).unwrap().clone()
+                    if let DbEntry::List(l) = state.db.get(&key).unwrap()
                         && l.len() > 0
                     {
                         l[0].clone()
@@ -406,7 +419,7 @@ impl Db {
         let mut number =
             atoi::<u64>(entry.get().unwrap().chunk()).ok_or(CommandError::NotANumber)?;
         number += 1;
-        entry.set(Bytes::from(format!("{:}", number)));
+        entry.set(Bytes::from(format!("{:}", number)))?;
 
         Ok(number)
     }
@@ -427,7 +440,7 @@ impl Db {
         let list = state.db.entry(key).or_insert_with(|| DbEntry::List(vec![]));
 
         for value in values {
-            list.push(value);
+            list.push(value).unwrap();
         }
 
         list.len().unwrap()
@@ -441,7 +454,7 @@ impl Db {
         let list = state.db.entry(key).or_insert_with(|| DbEntry::List(vec![]));
 
         for value in values {
-            list.insert(0, value);
+            list.insert(0, value).unwrap();
         }
 
         list.len().unwrap()
@@ -655,6 +668,23 @@ impl Db {
             .or_insert_with(|| DbEntry::ZSet(ZSet::new()));
 
         set.zadd(score, member).unwrap()
+    }
+
+    pub fn geoadd(
+        &self,
+        key: String,
+        longitude: f64,
+        latitude: f64,
+        member: Bytes,
+    ) -> CommandResult<usize> {
+        let mut state = self.shared.state.lock().unwrap();
+
+        let set = state
+            .db
+            .entry(key)
+            .or_insert_with(|| DbEntry::ZSet(ZSet::new()));
+
+        Ok(set.geoadd(longitude, latitude, member)?)
     }
 
     pub fn zrank(&self, key: String, member: Bytes) -> Option<usize> {

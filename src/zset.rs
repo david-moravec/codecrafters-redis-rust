@@ -1,7 +1,19 @@
 use std::cmp::max;
 use std::collections::{BTreeSet, HashMap};
 
+use thiserror::Error;
+
 use bytes::Bytes;
+
+#[derive(Debug, Error)]
+pub enum ZSetError {
+    #[error("ERR invalid longitude,latitude pair {0},{1}")]
+    InvalidLocation(f64, f64),
+}
+
+fn calculate_location_score(longitude: f64, latitude: f64) -> Result<f64, ZSetError> {
+    Ok(0.0)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 struct OrderedFloat(pub f64);
@@ -123,6 +135,16 @@ impl ZSet {
             self.btree.remove(&(OrderedFloat(score), member));
             1
         }
+    }
+
+    pub fn geoadd(
+        &mut self,
+        longitude: f64,
+        latitude: f64,
+        member: Bytes,
+    ) -> Result<usize, ZSetError> {
+        let score = calculate_location_score(longitude, latitude)?;
+        Ok(self.zadd(score, member))
     }
 }
 
