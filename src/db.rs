@@ -203,6 +203,14 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("set"))
         }
     }
+
+    fn geopos(&self, members: Vec<Bytes>) -> DbEntryResult<Vec<Option<(f64, f64)>>> {
+        if let Self::ZSet(s) = self {
+            Ok(s.geopos(members))
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -730,6 +738,15 @@ impl Db {
         match state.db.get_mut(&key) {
             Some(entry) => entry.zrem(member).unwrap(),
             None => 0,
+        }
+    }
+
+    pub fn geopos(&self, key: &str, members: Vec<Bytes>) -> Vec<Option<(f64, f64)>> {
+        let state = self.shared.state.lock().unwrap();
+
+        match state.db.get(key) {
+            Some(entry) => entry.geopos(members).unwrap(),
+            None => members.into_iter().map(|_| None).collect(),
         }
     }
 

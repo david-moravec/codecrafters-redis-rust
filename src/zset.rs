@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use bytes::Bytes;
 
-use crate::geohash::{LAT_MAX, LAT_MIN, LON_MAX, LON_MIN, calculate_geohash};
+use crate::geohash::{LAT_MAX, LAT_MIN, LON_MAX, LON_MIN, calculate_geohash, decode_geohash};
 
 #[derive(Debug, Error)]
 pub enum ZSetError {
@@ -13,13 +13,16 @@ pub enum ZSetError {
     InvalidLongitudeLatitudePair(f64, f64),
 }
 
-fn validate_longitude_latitude_pair(longitude: f64, latitude: f64) -> Result<(), ZSetError> {
+fn validate_longitude_latitude_pair(
+    longitude: f64,
+    latitude: f64,
+) -> Result<(f64, f64), ZSetError> {
     if longitude < LON_MIN || longitude > LON_MAX {
         Err(ZSetError::InvalidLongitudeLatitudePair(longitude, latitude))
     } else if latitude < LAT_MIN || latitude > LAT_MAX {
         Err(ZSetError::InvalidLongitudeLatitudePair(longitude, latitude))
     } else {
-        Ok(())
+        Ok((longitude, latitude))
     }
 }
 
@@ -154,6 +157,22 @@ impl ZSet {
         validate_longitude_latitude_pair(longitude, latitude)?;
         let score = calculate_geohash(longitude, latitude);
         Ok(self.zadd(score, member))
+    }
+
+    pub fn geopos(&self, members: Vec<Bytes>) -> Vec<Option<(f64, f64)>> {
+        members
+            .into_iter()
+            .map(|member| {
+                let score = self.hashmap.get(&member);
+
+                if let Some(score) = score {
+                    let (lon, lat) = decode_geohash(*score);
+                    Some((lon, lat))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 

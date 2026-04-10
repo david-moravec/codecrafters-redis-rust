@@ -8,6 +8,7 @@ mod discard;
 mod echo;
 mod exec;
 mod geoadd;
+mod geopos;
 mod get;
 mod incr;
 mod info;
@@ -51,6 +52,7 @@ use discard::Discard;
 use echo::Echo;
 use exec::Exec;
 use geoadd::GeoAdd;
+use geopos::GeoPos;
 use get::Get;
 use incr::Incr;
 use info::Info;
@@ -178,6 +180,7 @@ pub enum DbCommand {
     ZCard(ZCard),
     ZRem(ZRem),
     Keys(Keys),
+    GeoPos(GeoPos),
 }
 
 impl DbCommand {
@@ -201,6 +204,7 @@ impl DbCommand {
             Self::XRead(cmd) => cmd.apply(db).await,
             Self::ZAdd(cmd) => cmd.apply(db),
             Self::GeoAdd(cmd) => cmd.apply(db),
+            Self::GeoPos(cmd) => cmd.apply(db),
             Self::ZCard(cmd) => cmd.apply(db),
             Self::ZRank(cmd) => cmd.apply(db),
             Self::ZScore(cmd) => cmd.apply(db),
@@ -246,6 +250,7 @@ impl Command {
             "zrank" => Command::Db(DbCommand::ZRank(ZRank::parse(&mut parse)?)),
             "zrem" => Command::Db(DbCommand::ZRem(ZRem::parse(&mut parse)?)),
             "zscore" => Command::Db(DbCommand::ZScore(ZScore::parse(&mut parse)?)),
+            "geopos" => Command::Db(DbCommand::GeoPos(GeoPos::parse(&mut parse)?)),
             "zrange" => Command::Db(DbCommand::ZRange(ZRange::parse(&mut parse)?)),
             "xrange" => Command::Db(DbCommand::XRange(XRange::parse(&mut parse)?)),
             "xread" => Command::Db(DbCommand::XRead(XRead::parse(&mut parse)?)),

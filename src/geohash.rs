@@ -39,6 +39,10 @@ pub fn calculate_geohash(lon: f64, lat: f64) -> f64 {
     bits as f64
 }
 
+pub fn decode_geohash(geohash: f64) -> (f64, f64) {
+    (0.0, 0.0)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
