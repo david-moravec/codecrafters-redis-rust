@@ -8,6 +8,7 @@ mod discard;
 mod echo;
 mod exec;
 mod geoadd;
+mod geodist;
 mod geopos;
 mod get;
 mod incr;
@@ -52,6 +53,7 @@ use discard::Discard;
 use echo::Echo;
 use exec::Exec;
 use geoadd::GeoAdd;
+use geodist::GeoDist;
 use geopos::GeoPos;
 use get::Get;
 use incr::Incr;
@@ -181,6 +183,7 @@ pub enum DbCommand {
     ZRem(ZRem),
     Keys(Keys),
     GeoPos(GeoPos),
+    GeoDist(GeoDist),
 }
 
 impl DbCommand {
@@ -210,6 +213,7 @@ impl DbCommand {
             Self::ZScore(cmd) => cmd.apply(db),
             Self::ZRem(cmd) => cmd.apply(db),
             Self::ZRange(cmd) => cmd.apply(db),
+            Self::GeoDist(cmd) => cmd.apply(db),
         }
     }
 }
@@ -246,6 +250,7 @@ impl Command {
             "xadd" => Command::Db(DbCommand::XAdd(XAdd::parse(&mut parse)?)),
             "zadd" => Command::Db(DbCommand::ZAdd(ZAdd::parse(&mut parse)?)),
             "geoadd" => Command::Db(DbCommand::GeoAdd(GeoAdd::parse(&mut parse)?)),
+            "geodist" => Command::Db(DbCommand::GeoDist(GeoDist::parse(&mut parse)?)),
             "zcard" => Command::Db(DbCommand::ZCard(ZCard::parse(&mut parse)?)),
             "zrank" => Command::Db(DbCommand::ZRank(ZRank::parse(&mut parse)?)),
             "zrem" => Command::Db(DbCommand::ZRem(ZRem::parse(&mut parse)?)),

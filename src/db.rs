@@ -211,6 +211,14 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("set"))
         }
     }
+
+    fn geodist(&self, member1: &Bytes, member2: &Bytes) -> DbEntryResult<f64> {
+        if let Self::ZSet(s) = self {
+            Ok(s.geodist(member1, member2))
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -747,6 +755,15 @@ impl Db {
         match state.db.get(key) {
             Some(entry) => entry.geopos(members).unwrap(),
             None => members.into_iter().map(|_| None).collect(),
+        }
+    }
+
+    pub fn geodist(&self, key: &str, member1: &Bytes, member2: &Bytes) -> Option<f64> {
+        let state = self.shared.state.lock().unwrap();
+
+        match state.db.get(key) {
+            Some(entry) => entry.geodist(member1, member2).ok(),
+            None => None,
         }
     }
 

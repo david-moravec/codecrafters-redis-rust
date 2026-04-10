@@ -5,7 +5,9 @@ use thiserror::Error;
 
 use bytes::Bytes;
 
-use crate::geohash::{LAT_MAX, LAT_MIN, LON_MAX, LON_MIN, calculate_geohash, decode_geohash};
+use crate::geohash::{
+    LAT_MAX, LAT_MIN, LON_MAX, LON_MIN, calculate_geohash, decode_geohash, haversine_distance,
+};
 
 #[derive(Debug, Error)]
 pub enum ZSetError {
@@ -173,6 +175,12 @@ impl ZSet {
                 }
             })
             .collect()
+    }
+
+    pub fn geodist(&self, member1: &Bytes, member2: &Bytes) -> f64 {
+        let (lon1, lat1) = decode_geohash(*self.hashmap.get(member1).unwrap());
+        let (lon2, lat2) = decode_geohash(*self.hashmap.get(member2).unwrap());
+        haversine_distance(lon1, lat1, lon2, lat2)
     }
 }
 

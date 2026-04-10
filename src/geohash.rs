@@ -3,6 +3,8 @@ pub const LAT_MAX: f64 = 85.05112878;
 pub const LON_MIN: f64 = -180.0;
 pub const LON_MAX: f64 = 180.0;
 
+pub const EARTH_RADIUS_METERS: f64 = 6372797.560856;
+
 const STEP: u8 = 26;
 
 pub fn calculate_geohash(lon: f64, lat: f64) -> f64 {
@@ -36,6 +38,13 @@ pub fn decode_geohash(geohash: f64) -> (f64, f64) {
     let lon = LON_MIN + ((lon_bits as f64 + 0.5) / buckets) * (LON_MAX - LON_MIN);
     let lat = LAT_MIN + ((lat_bits as f64 + 0.5) / buckets) * (LAT_MAX - LAT_MIN);
     (lon, lat)
+}
+
+pub fn haversine_distance(lon1: f64, lat1: f64, lon2: f64, lat2: f64) -> f64 {
+    let v = ((lon2.to_radians() - lon1.to_radians()) / 2.0).sin();
+    let u = ((lat2.to_radians() - lat1.to_radians()) / 2.0).sin();
+    let a = u * u + lat1.to_radians().cos() * lat2.to_radians().cos() * v * v;
+    2.0 * EARTH_RADIUS_METERS * a.sqrt().asin()
 }
 
 #[cfg(test)]
