@@ -5,25 +5,6 @@ pub const LON_MAX: f64 = 180.0;
 
 const STEP: u8 = 26;
 
-fn spread_u32_to_u64(v: u64) -> u64 {
-    let mut result: u64 = v & 0xFFFFFFFF;
-
-    result = (result | (result << 16)) & 0x0000FFFF0000FFFF;
-    result = (result | (result << 8)) & 0x00FF00FF00FF00FF;
-    result = (result | (result << 4)) & 0x0F0F0F0F0F0F0F0F;
-    result = (result | (result << 2)) & 0x3333333333333333;
-    result = (result | (result << 1)) & 0x5555555555555555;
-
-    result
-}
-
-fn interleave(x: u64, y: u64) -> u64 {
-    let x = spread_u32_to_u64(x);
-    let y = spread_u32_to_u64(y);
-
-    x | (y << 1)
-}
-
 pub fn calculate_geohash(lon: f64, lat: f64) -> f64 {
     let lon_offset = (lon - LON_MIN) / (LON_MAX - LON_MIN);
     let lat_offset = (lat - LAT_MIN) / (LAT_MAX - LAT_MIN);
@@ -40,7 +21,21 @@ pub fn calculate_geohash(lon: f64, lat: f64) -> f64 {
 }
 
 pub fn decode_geohash(geohash: f64) -> (f64, f64) {
-    (0.0, 0.0)
+    let bits = geohash as u64;
+    let mut lon_bits: u64 = 0;
+    let mut lat_bits: u64 = 0;
+    for i in 0..(STEP * 2) {
+        let bit = (bits >> i) & 1;
+        if i % 2 == 0 {
+            lat_bits |= bit << (i / 2);
+        } else {
+            lon_bits |= bit << (i / 2);
+        }
+    }
+    let buckets = (1u64 << STEP) as f64;
+    let lon = LON_MIN + ((lon_bits as f64 + 0.5) / buckets) * (LON_MAX - LON_MIN);
+    let lat = LAT_MIN + ((lat_bits as f64 + 0.5) / buckets) * (LAT_MAX - LAT_MIN);
+    (lon, lat)
 }
 
 #[cfg(test)]
