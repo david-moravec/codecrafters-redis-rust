@@ -5,7 +5,7 @@ use crate::parser::Parse;
 
 use anyhow::anyhow;
 use bytes::Bytes;
-use macros::{ToFrame, propagate_to_replicas};
+use macros::ToFrame;
 
 #[derive(ToFrame, Debug)]
 pub struct Set {
@@ -42,12 +42,7 @@ impl Set {
         Ok(Set { key, value, expire })
     }
 
-    #[propagate_to_replicas]
-    pub fn apply(
-        self,
-        db: &crate::db::Db,
-        dst: &mut crate::connection::Connection,
-    ) -> anyhow::Result<Frame> {
+    pub fn apply(self, db: &crate::db::Db) -> anyhow::Result<Frame> {
         db.set(self.key, self.value, self.expire);
         Ok(Frame::Simple("OK".to_string()))
     }

@@ -1,76 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    DeriveInput, FnArg, ImplItemFn, Pat, PatType, Type, TypePath, TypeReference, parse_macro_input,
-    punctuated::Punctuated, token::Comma,
-};
-
-fn get_connection_pat(inputs: &Punctuated<FnArg, Comma>) -> Result<Pat, syn::Error> {
-    let mut connection_arg_pat: Option<&Pat> = None;
-
-    for input in inputs.iter() {
-        if let FnArg::Typed(PatType {
-            ty: boxed_type,
-            pat,
-            ..
-        }) = input
-        {
-            let arg_type = boxed_type.as_ref();
-
-            if let Type::Reference(TypeReference {
-                elem: boxed_type, ..
-            }) = arg_type
-            {
-                let arg_type = boxed_type.as_ref();
-
-                if let Type::Path(TypePath { path, .. }) = arg_type {
-                    if let Some(last_segment) = path.segments.last() {
-                        if last_segment.ident.to_string() == "Connection" {
-                            connection_arg_pat = Some(pat.as_ref());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if connection_arg_pat.is_none() {
-        return Err(syn::Error::new_spanned(
-            &inputs,
-            "Expected function to accept Connection",
-        ));
-    }
-
-    let connection_arg_pat = connection_arg_pat.unwrap();
-
-    Ok(connection_arg_pat.clone())
-}
-
-#[proc_macro_attribute]
-pub fn propagate_to_replicas(args: TokenStream, input: TokenStream) -> TokenStream {
-    let _ = args;
-
-    let mut item = parse_macro_input!(input as ImplItemFn);
-    let mut error: Option<syn::Error> = None;
-
-    match get_connection_pat(&item.sig.inputs) {
-        Ok(pat) => {
-            let send_to_replicas_tt: TokenStream =
-                quote! {#pat.send_to_replicas_connections(self.to_frame())?;}.into();
-            let send_to_replicas_stmt = parse_macro_input!(send_to_replicas_tt as syn::Stmt);
-            item.block.stmts.insert(0, send_to_replicas_stmt);
-        }
-        Err(err) => error = Some(err),
-    };
-
-    let mut tt = quote! {#item};
-
-    if let Some(err) = error {
-        tt.extend(err.to_compile_error());
-    }
-
-    tt.into()
-}
+use syn::{DeriveInput, parse_macro_input};
 
 fn recipe_to_bytes(attrs: Vec<syn::Attribute>) -> Option<TokenStream> {
     for attr in attrs {
@@ -124,7 +54,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
 
     let tt = quote! {impl #ident {
-        fn to_frame(&self) -> Frame {
+        pub(crate) fn to_frame(&self) -> Frame {
             use bytes::Bytes;
             Frame::bulk_strings_array(vec![Bytes::from((#ident_str).to_uppercase()), #(#fields_to_bytes,)*])
         }
@@ -132,4 +62,78 @@ pub fn derive(input: TokenStream) -> TokenStream {
     }};
 
     tt.into()
+}
+
+#[proc_macro_derive(ApplyDbDispatch, attributes(apply, propagate))]
+pub fn cmd_apply(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let enum_name = &ast.ident;
+
+    let mut tt = proc_macro2::TokenStream::new();
+
+    let variants = match &ast.data {
+        syn::Data::Enum(e) => &e.variants,
+        _ => {
+            return syn::Error::new_spanned(&ast, "This works only on enums")
+                .to_compile_error()
+                .into();
+        }
+    };
+
+    let arms = variants.iter().map(|variant| {
+        let ident = &variant.ident;
+        let mut needs_await = false;
+        let mut should_propagate = false;
+
+        for attr in &variant.attrs {
+            if attr.path().is_ident("apply") {
+                if let Err(_) = attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("await") {
+                        needs_await = true;
+                    } else {
+                        tt.extend(
+                            syn::Error::new_spanned(attr, "Unknow apply attribute variant")
+                                .to_compile_error(),
+                        );
+                    }
+                    Ok(())
+                }) {
+                    tt.extend(syn::Error::new_spanned(attr, "Unknown attr").to_compile_error())
+                }
+            } else if attr.path().is_ident("propagate") {
+                should_propagate = true
+            }
+        }
+
+        let mut call = if needs_await {
+            quote! { cmd.apply(db).await }
+        } else {
+            quote! { cmd.apply(db) }
+        };
+
+        if should_propagate {
+            call = quote! {
+                {
+                    let cmd_frame = cmd.to_frame();
+                    let frame = #call;
+                    connection.send_to_replicas_connections(cmd_frame)?;
+                    frame
+                }
+            }
+        }
+
+        quote! {#enum_name::#ident(cmd) => #call,}
+    });
+
+    let expanded = quote! {
+        impl #enum_name {
+            pub async fn apply(self, db: &Db, connection: &mut Connection) -> Result<Frame> {
+                match self {
+                    #(#arms)*
+                }
+            }
+        }
+    };
+
+    expanded.into()
 }

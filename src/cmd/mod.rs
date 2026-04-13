@@ -43,6 +43,7 @@ use crate::frame::Frame;
 use crate::parser::Parse;
 use crate::server::subscription_channels::SubscriptionMessage;
 use crate::{connection::Connection, server::info::ServerInfo};
+use macros::ApplyDbDispatch;
 use tokio_stream::StreamMap;
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -157,11 +158,12 @@ impl TransactionCommand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, ApplyDbDispatch)]
 pub enum DbCommand {
     Ping(Ping),
     Get(Get),
     Echo(Echo),
+    #[propagate]
     Set(Set),
     Incr(Incr),
     RPush(RPush),
@@ -169,10 +171,12 @@ pub enum DbCommand {
     LPush(LPush),
     LLen(LLen),
     LPop(LPop),
+    #[apply(await)]
     BLPop(BLPop),
     Type(Type),
     XAdd(XAdd),
     XRange(XRange),
+    #[apply(await)]
     XRead(XRead),
     ZAdd(ZAdd),
     GeoAdd(GeoAdd),
@@ -184,38 +188,6 @@ pub enum DbCommand {
     Keys(Keys),
     GeoPos(GeoPos),
     GeoDist(GeoDist),
-}
-
-impl DbCommand {
-    pub async fn apply(self, db: &Db, dst: &mut Connection) -> Result<Frame> {
-        match self {
-            Self::Ping(cmd) => cmd.apply(db),
-            Self::Get(cmd) => cmd.apply(db),
-            Self::Echo(cmd) => cmd.apply(db),
-            Self::Set(cmd) => cmd.apply(db, dst),
-            Self::Incr(cmd) => cmd.apply(db),
-            Self::RPush(cmd) => cmd.apply(db),
-            Self::LRange(cmd) => cmd.apply(db),
-            Self::LPush(cmd) => cmd.apply(db),
-            Self::LLen(cmd) => cmd.apply(db),
-            Self::LPop(cmd) => cmd.apply(db),
-            Self::BLPop(cmd) => cmd.apply(db).await,
-            Self::Type(cmd) => cmd.apply(db),
-            Self::XAdd(cmd) => cmd.apply(db),
-            Self::XRange(cmd) => cmd.apply(db),
-            Self::Keys(cmd) => cmd.apply(db),
-            Self::XRead(cmd) => cmd.apply(db).await,
-            Self::ZAdd(cmd) => cmd.apply(db),
-            Self::GeoAdd(cmd) => cmd.apply(db),
-            Self::GeoPos(cmd) => cmd.apply(db),
-            Self::ZCard(cmd) => cmd.apply(db),
-            Self::ZRank(cmd) => cmd.apply(db),
-            Self::ZScore(cmd) => cmd.apply(db),
-            Self::ZRem(cmd) => cmd.apply(db),
-            Self::ZRange(cmd) => cmd.apply(db),
-            Self::GeoDist(cmd) => cmd.apply(db),
-        }
-    }
 }
 
 #[derive(Debug)]
