@@ -182,6 +182,20 @@ impl ZSet {
         let (lon2, lat2) = decode_geohash(*self.hashmap.get(member2).unwrap());
         haversine_distance(lon1, lat1, lon2, lat2)
     }
+
+    pub fn geosearch(&self, lon: f64, lat: f64, radius: f64) -> Vec<Bytes> {
+        self.hashmap
+            .iter()
+            .filter_map(|(member, score)| {
+                let (lon1, lat1) = decode_geohash(*score);
+                if haversine_distance(lon, lat, lon1, lat1) < radius {
+                    Some(member.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]

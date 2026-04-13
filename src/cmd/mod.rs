@@ -10,6 +10,7 @@ mod exec;
 mod geoadd;
 mod geodist;
 mod geopos;
+mod geosearch;
 mod get;
 mod incr;
 mod info;
@@ -56,6 +57,7 @@ use exec::Exec;
 use geoadd::GeoAdd;
 use geodist::GeoDist;
 use geopos::GeoPos;
+use geosearch::GeoSearch;
 use get::Get;
 use incr::Incr;
 use info::Info;
@@ -188,6 +190,7 @@ pub enum DbCommand {
     Keys(Keys),
     GeoPos(GeoPos),
     GeoDist(GeoDist),
+    GeoSearch(GeoSearch),
 }
 
 #[derive(Debug)]
@@ -228,6 +231,7 @@ impl Command {
             "zrem" => Command::Db(DbCommand::ZRem(ZRem::parse(&mut parse)?)),
             "zscore" => Command::Db(DbCommand::ZScore(ZScore::parse(&mut parse)?)),
             "geopos" => Command::Db(DbCommand::GeoPos(GeoPos::parse(&mut parse)?)),
+            "geosearch" => Command::Db(DbCommand::GeoSearch(GeoSearch::parse(&mut parse)?)),
             "zrange" => Command::Db(DbCommand::ZRange(ZRange::parse(&mut parse)?)),
             "xrange" => Command::Db(DbCommand::XRange(XRange::parse(&mut parse)?)),
             "xread" => Command::Db(DbCommand::XRead(XRead::parse(&mut parse)?)),

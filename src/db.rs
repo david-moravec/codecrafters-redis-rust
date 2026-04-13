@@ -219,6 +219,14 @@ impl DbEntry {
             Err(DbEntryError::WrongEntryType("set"))
         }
     }
+
+    fn geosearch(&self, lon: f64, lat: f64, radius: f64) -> DbEntryResult<Vec<Bytes>> {
+        if let Self::ZSet(s) = self {
+            Ok(s.geosearch(lon, lat, radius))
+        } else {
+            Err(DbEntryError::WrongEntryType("set"))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -764,6 +772,15 @@ impl Db {
         match state.db.get(key) {
             Some(entry) => entry.geodist(member1, member2).ok(),
             None => None,
+        }
+    }
+
+    pub fn geosearch(&self, key: &str, lon: f64, lat: f64, radius: f64) -> Vec<Bytes> {
+        let state = self.shared.state.lock().unwrap();
+
+        match state.db.get(key) {
+            Some(entry) => entry.geosearch(lon, lat, radius).unwrap(),
+            None => vec![],
         }
     }
 
